@@ -1,5 +1,13 @@
+import { useLocale } from '@/modules/services'
+
 function Home() {
-  return <div className="dashboard"></div>
+  const { t } = useLocale()
+
+  return (
+    <div>
+      <p>{t('pages.home.home')}</p>
+    </div>
+  )
 }
 
 export default Home

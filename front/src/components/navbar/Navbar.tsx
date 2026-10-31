@@ -1,15 +1,18 @@
 import { Link, useLocation } from 'react-router-dom'
-
-const links = [
-  { to: '/', label: 'Home' },
-  { to: '/changelog', label: 'Changelog' }
-]
+import { useLocale } from '@/modules/services'
+import type { Locale } from '@/types'
 
 export default function Navbar() {
   const { pathname } = useLocation()
+  const { locale, setLocale, t } = useLocale()
 
   const isLinkActive = (to: string) =>
     to === '/' ? !pathname.startsWith('/changelog') : pathname.startsWith(to)
+
+  const links = [
+    { to: '/', label: t('nav.home') },
+    { to: '/changelog', label: t('nav.changelog') }
+  ]
 
   return (
     <nav className="navbar" aria-label="Primary">
@@ -27,6 +30,14 @@ export default function Navbar() {
             </Link>
           </li>
         ))}
+        <select
+          value={locale}
+          onChange={(e) => setLocale(e.target.value as Locale)}
+          className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded-md bg-[var(--bg)] text-[var(--text)] cursor-pointer focus:outline-none focus:border-[var(--accent)]"
+        >
+          <option value="en">English</option>
+          <option value="pt">Português</option>
+        </select>
       </ul>
     </nav>
   )

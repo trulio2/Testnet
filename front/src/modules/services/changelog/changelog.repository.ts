@@ -5,7 +5,7 @@ export default class ChangelogRepository implements IChangelogRepository {
     return [
       {
         version: '0.0.1',
-        date: '2026-10-26',
+        date: '2026-10-30',
         items: []
       }
     ]

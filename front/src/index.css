@@ -15,7 +15,6 @@
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
-  /* Dashboard palette, shared by the dashboard and the navbar ticker. */
   --dash-bg: #060a0b;
   --dash-panel: #0a1012;
   --dash-panel-strong: #0d1618;

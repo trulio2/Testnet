@@ -1,7 +1,8 @@
 import {
   ChangelogRepository,
-  ChangelogService
-} from '@/modules/services/changelog'
+  ChangelogService,
+  LocaleService
+} from '@/modules/services'
 import { type IChangelogRepository, REPOSITORIES, SERVICES } from '@/types'
 
 class IoC {
@@ -22,6 +23,10 @@ class IoC {
         break
       case REPOSITORIES.CHANGELOG:
         newInstance = new ChangelogRepository()
+        break
+
+      case SERVICES.LOCALE:
+        newInstance = new LocaleService()
         break
       default:
         break
