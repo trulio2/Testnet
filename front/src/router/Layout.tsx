@@ -1,12 +1,18 @@
 import { Suspense, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
-import { Navbar } from '@/components'
+import { Navbar, SessionNotice } from '@/components'
+import { useSessionStatus } from '@/modules/services'
 import { init } from '@/setup'
 
 function RootLayout() {
+  const status = useSessionStatus()
+
   useEffect(() => {
     void init()
   }, [])
+
+  if (status === 'blocked') return <SessionNotice />
+  if (status === 'pending') return null
 
   return (
     <>

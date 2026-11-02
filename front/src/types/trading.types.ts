@@ -107,7 +107,9 @@ export interface ITradingService {
 export interface TradingState {
   account: TradingAccount
   drafts: Partial<Record<SymbolId, OrderDraft>>
+  lastProcessedAt: number
   setAccount(account: TradingAccount): void
+  setLastProcessedAt(time: number): void
   setDraft(symbol: SymbolId, draft: OrderDraft): void
 }
 

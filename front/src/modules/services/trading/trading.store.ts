@@ -13,8 +13,12 @@ export const tradingStore = create<TradingState>()(
     (set) => ({
       account: createAccount(),
       drafts: {},
+      lastProcessedAt: 0,
       setAccount(account: TradingAccount) {
         set({ account })
+      },
+      setLastProcessedAt(lastProcessedAt: number) {
+        set({ lastProcessedAt })
       },
       setDraft(symbol: SymbolId, draft: OrderDraft) {
         set((state) => ({ drafts: { ...state.drafts, [symbol]: draft } }))
@@ -23,7 +27,10 @@ export const tradingStore = create<TradingState>()(
     {
       name: 'trading-storage',
       version: 1,
-      partialize: (state) => ({ account: state.account })
+      partialize: (state) => ({
+        account: state.account,
+        lastProcessedAt: state.lastProcessedAt
+      })
     }
   )
 )

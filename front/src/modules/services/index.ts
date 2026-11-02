@@ -13,6 +13,7 @@ import {
   useSymbols,
   useTicker
 } from './market'
+import { SessionService, useSessionStatus } from './session'
 import {
   TradingService,
   useAccountSummary,
@@ -33,6 +34,7 @@ export {
   LocaleService,
   MarketRepository,
   MarketService,
+  SessionService,
   TradingService,
   useAccountSummary,
   useActiveSymbol,
@@ -48,6 +50,7 @@ export {
   usePosition,
   usePositions,
   useRecentTrades,
+  useSessionStatus,
   useSymbol,
   useSymbolOrders,
   useSymbols,

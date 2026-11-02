@@ -96,12 +96,13 @@ export default class MarketRepository implements IMarketRepository {
   public async fetchCandles(
     symbol: SymbolId,
     timeframe: Timeframe,
-    { limit, endTime }: FetchCandlesOptions
+    { limit, startTime, endTime }: FetchCandlesOptions
   ): Promise<Candle[]> {
     const klines = await getJson<BinanceKline[]>('klines', {
       symbol: SYMBOLS[symbol].feedSymbol,
       interval: timeframe,
       limit: String(limit),
+      ...(startTime === undefined ? {} : { startTime: String(startTime) }),
       ...(endTime === undefined ? {} : { endTime: String(endTime) })
     })
 

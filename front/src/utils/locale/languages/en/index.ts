@@ -62,6 +62,11 @@ export const en: ITranslations = {
       resetConfirm:
         'Reset the account? Positions, open orders and fills will be cleared.'
     },
+    session: {
+      title: 'Testnet is open in another tab',
+      description:
+        'Your account runs in one tab at a time. This tab takes over when the other one closes.'
+    },
     ordersPanel: {
       positions: 'Positions',
       orders: 'Open orders',

@@ -5,6 +5,7 @@ import OrderForm from './orderForm/OrderForm'
 import OrdersPanel from './ordersPanel/OrdersPanel'
 import PriceChart from './priceChart/PriceChart'
 import RecentTrades from './recentTrades/RecentTrades'
+import SessionNotice from './sessionNotice/SessionNotice'
 import TickerBar from './tickerBar/TickerBar'
 
 export {
@@ -15,5 +16,6 @@ export {
   OrdersPanel,
   PriceChart,
   RecentTrades,
+  SessionNotice,
   TickerBar
 }

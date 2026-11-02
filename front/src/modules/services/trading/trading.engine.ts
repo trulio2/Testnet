@@ -1,5 +1,6 @@
 import type {
   AccountSummary,
+  Candle,
   Fill,
   Liquidity,
   MarkPrices,
@@ -313,18 +314,21 @@ export function submitOrder(
   }
 }
 
-// Fills every resting order the market touched, oldest first. Returns the same
-// account object when nothing fills so callers can skip the store write.
+// Fills every resting order the market touched, oldest first, ignoring orders
+// placed at or after `placedBefore`. Returns the same account object when nothing
+// fills so callers can skip the store write.
 export function matchRestingOrders(
   account: TradingAccount,
   symbol: SymbolId,
   { low, high }: PriceCrossing,
-  time: number
+  time: number,
+  placedBefore = Infinity
 ): TradingAccount {
   const matched = account.openOrders
     .filter(
       (order) =>
         order.symbol === symbol &&
+        order.createdAt < placedBefore &&
         (order.side === 'buy' ? low <= order.price : high >= order.price)
     )
     .sort((a, b) => a.id - b.id)
@@ -351,6 +355,27 @@ export function matchRestingOrders(
       )
     }
   )
+}
+
+// Applies candles from a period the live stream missed. A candle only counts for
+// orders placed before it opened, because its high and low may come from before
+// the order existed.
+export function replayCandles(
+  account: TradingAccount,
+  symbol: SymbolId,
+  candles: Candle[]
+): TradingAccount {
+  return candles.reduce((result, candle) => {
+    const openedAt = candle.time * 1000
+
+    return matchRestingOrders(
+      result,
+      symbol,
+      { low: candle.low, high: candle.high },
+      openedAt,
+      openedAt
+    )
+  }, account)
 }
 
 export function cancelOpenOrder(

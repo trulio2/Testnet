@@ -62,6 +62,10 @@ interface IComponents {
     reset: string
     resetConfirm: string
   }
+  session: {
+    title: string
+    description: string
+  }
   ordersPanel: {
     positions: string
     orders: string

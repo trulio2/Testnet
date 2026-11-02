@@ -556,6 +556,15 @@ h2.trade-panel-title {
 
   .trade-grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 620px 640px;
+    grid-template-rows: 620px auto 640px;
+  }
+
+  .trade-center {
+    order: -1;
+  }
+
+  /* iOS zooms the page when focusing an input smaller than this. */
+  .order-field input {
+    font-size: 16px;
   }
 }

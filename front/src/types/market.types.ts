@@ -70,6 +70,7 @@ export interface CandleListener {
 
 export interface FetchCandlesOptions {
   limit: number
+  startTime?: number
   endTime?: number
 }
 
@@ -82,6 +83,7 @@ export interface MarketStreamHandlers {
 }
 
 export interface MarketEventListener {
+  onOpen(): void
   onTrade(symbol: SymbolId, trade: Trade): void
   onBook(symbol: SymbolId, book: OrderBook): void
 }
@@ -122,6 +124,7 @@ export interface IMarketService {
     timeframe: Timeframe,
     listener: CandleListener
   ): () => void
+  getMinuteCandlesSince(symbol: SymbolId, startTime: number): Promise<Candle[]>
   loadOlderCandles(symbol: SymbolId, timeframe: Timeframe): Promise<void>
   reloadCandles(symbol: SymbolId, timeframe: Timeframe): Promise<void>
 }

@@ -56,8 +56,14 @@ export function useSymbolOrders(symbol: SymbolId) {
   )
 }
 
+// Newest first by time: catch-up can add older fills after newer ones.
 export function useFills() {
-  return tradingService.getFills()
+  const fills = tradingService.getFills()
+
+  return useMemo(
+    () => [...fills].sort((a, b) => b.time - a.time || b.id - a.id),
+    [fills]
+  )
 }
 
 export function useOrderDraft(symbol: SymbolId) {

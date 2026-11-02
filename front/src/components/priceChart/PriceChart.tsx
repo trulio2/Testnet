@@ -100,6 +100,7 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
         horzLines: { color: border }
       },
       crosshair: { mode: CrosshairMode.Normal },
+      handleScroll: { vertTouchDrag: false },
       rightPriceScale: { borderColor: border },
       timeScale: {
         borderColor: border,

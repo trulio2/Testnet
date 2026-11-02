@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type {
+  Candle,
   OrderBook,
   OrderRequest,
   SymbolId,
@@ -14,6 +15,7 @@ import {
   INITIAL_BALANCE,
   MAKER_FEE_RATE,
   matchRestingOrders,
+  replayCandles,
   submitOrder,
   TAKER_FEE_RATE
 } from './trading.engine'
@@ -279,6 +281,83 @@ describe('matchRestingOrders', () => {
     )
 
     expect(account.fills.map((fill) => fill.price)).toEqual([96, 95])
+  })
+})
+
+describe('replayCandles', () => {
+  const candle = (time: number, low: number, high: number): Candle => ({
+    time,
+    open: low,
+    high,
+    low,
+    close: high,
+    volume: 1
+  })
+  // Placed at NOW (1000 ms), so a candle opening at 2 s starts after it.
+  const resting = (side: TradeSide, price: number) =>
+    place(createAccount(), {
+      symbol: 'BTCUSD',
+      side,
+      type: 'limit',
+      qty: 1,
+      price
+    }).account
+
+  it('fills an order a later candle crossed, at its limit, as a maker', () => {
+    const account = replayCandles(resting('buy', 95), 'BTCUSD', [
+      candle(2, 90, 100)
+    ])
+
+    expect(account.openOrders).toHaveLength(0)
+    expect(account.fills[0]).toMatchObject({
+      price: 95,
+      liquidity: 'maker',
+      time: 2000
+    })
+  })
+
+  it('fills sells on the candle high', () => {
+    const account = replayCandles(resting('sell', 105), 'BTCUSD', [
+      candle(2, 100, 105)
+    ])
+
+    expect(account.positions.BTCUSD?.qty).toBe(-1)
+  })
+
+  it('ignores a candle that opened before the order was placed', () => {
+    const account = resting('buy', 95)
+
+    expect(replayCandles(account, 'BTCUSD', [candle(0, 90, 100)])).toBe(account)
+  })
+
+  it('ignores a candle that opened as the order was placed', () => {
+    const account = resting('buy', 95)
+
+    expect(replayCandles(account, 'BTCUSD', [candle(1, 90, 100)])).toBe(account)
+  })
+
+  it('returns the same account when no candle crosses', () => {
+    const account = resting('buy', 95)
+
+    expect(
+      replayCandles(account, 'BTCUSD', [candle(2, 96, 100), candle(3, 97, 99)])
+    ).toBe(account)
+  })
+
+  it('does not fill an order twice across candles', () => {
+    const account = replayCandles(resting('buy', 95), 'BTCUSD', [
+      candle(2, 90, 100),
+      candle(3, 90, 100)
+    ])
+
+    expect(account.fills).toHaveLength(1)
+    expect(account.positions.BTCUSD?.qty).toBe(1)
+  })
+
+  it('leaves other symbols alone', () => {
+    const account = resting('buy', 95)
+
+    expect(replayCandles(account, 'USDBRL', [candle(2, 1, 1)])).toBe(account)
   })
 })
 

@@ -42,6 +42,22 @@
   }
 }
 
+.session-notice {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+}
+
+.session-notice h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: normal;
+}
+
 .navbar {
   position: sticky;
   top: 0;
@@ -227,6 +243,7 @@
 
 @media (max-width: 1024px) {
   .navbar {
+    position: static;
     flex-wrap: wrap;
   }
 

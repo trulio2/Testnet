@@ -64,6 +64,11 @@ export const pt: ITranslations = {
       resetConfirm:
         'Redefinir a conta? Posições, ordens abertas e execuções serão apagadas.'
     },
+    session: {
+      title: 'O Testnet está aberto em outra aba',
+      description:
+        'Sua conta roda em uma aba por vez. Esta aba assume quando a outra for fechada.'
+    },
     ordersPanel: {
       positions: 'Posições',
       orders: 'Ordens abertas',
