@@ -2,7 +2,8 @@ export type Locale = 'en' | 'pt'
 
 interface IPages {
   home: {
-    home: string
+    orderPanelTitle: string
+    orderPanelNote: string
   }
   changelog: {}
 }
@@ -12,7 +13,38 @@ interface INav {
   changelog: string
 }
 
-interface IComponents {}
+interface IComponents {
+  ticker: {
+    symbols: string
+    change: string
+    high: string
+    low: string
+    volume: string
+  }
+  connection: {
+    connecting: string
+    live: string
+    reconnecting: string
+  }
+  chart: {
+    timeframe: string
+    loading: string
+    feedNote: string
+  }
+  orderBook: {
+    title: string
+    price: string
+    size: string
+    total: string
+    spread: string
+  }
+  recentTrades: {
+    title: string
+    price: string
+    size: string
+    time: string
+  }
+}
 
 interface IError {
   connectionError: string

@@ -1,9 +1,16 @@
+// Imported by file, not through the services barrel: the barrel also exports
+// hooks that call IoC at module load, which would make this a circular import.
+import ChangelogRepository from '@/modules/services/changelog/changelog.repository'
+import ChangelogService from '@/modules/services/changelog/changelog.service'
+import LocaleService from '@/modules/services/locale/locale.service'
+import MarketRepository from '@/modules/services/market/market.repository'
+import MarketService from '@/modules/services/market/market.service'
 import {
-  ChangelogRepository,
-  ChangelogService,
-  LocaleService
-} from '@/modules/services'
-import { type IChangelogRepository, REPOSITORIES, SERVICES } from '@/types'
+  type IChangelogRepository,
+  type IMarketRepository,
+  REPOSITORIES,
+  SERVICES
+} from '@/types'
 
 class IoC {
   private instances: Record<string, unknown> = {}
@@ -27,6 +34,15 @@ class IoC {
 
       case SERVICES.LOCALE:
         newInstance = new LocaleService()
+        break
+
+      case SERVICES.MARKET:
+        newInstance = new MarketService(
+          this.getOrCreateInstance<IMarketRepository>(REPOSITORIES.MARKET)
+        )
+        break
+      case REPOSITORIES.MARKET:
+        newInstance = new MarketRepository()
         break
       default:
         break

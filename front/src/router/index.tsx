@@ -10,7 +10,7 @@ export const router = createHashRouter([
     errorElement: <ErrorPage />,
     children: [
       {
-        path: ':tab?',
+        path: ':symbol?',
         element: (
           <LazyPage>
             <Home />

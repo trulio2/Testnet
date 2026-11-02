@@ -50,12 +50,109 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 24px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   text-align: left;
+}
+
+.ticker-bar {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  color: var(--dash-text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.symbol-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.symbol-tab {
+  display: flex;
+  flex-direction: column;
+  min-width: 88px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--dash-muted);
+  text-decoration: none;
+}
+
+.symbol-tab:hover {
+  color: var(--dash-text);
+}
+
+.symbol-tab:focus-visible {
+  outline: 2px solid var(--dash-cyan);
+  outline-offset: 1px;
+}
+
+.symbol-tab.active {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--dash-text);
+}
+
+.symbol-tab-label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.symbol-tab-price {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ticker-stats {
+  display: flex;
+  gap: 16px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.ticker-stats dt {
+  color: var(--dash-muted);
+  font-size: 11px;
+}
+
+.ticker-stats dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ticker-change-up {
+  color: var(--dash-green);
+}
+
+.ticker-change-down {
+  color: var(--dash-red);
+}
+
+.ticker-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.ticker-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dash-yellow);
+}
+
+.ticker-status-live::before {
+  background: var(--dash-green);
 }
 
 .navbar-brand {
@@ -130,7 +227,17 @@
 
 @media (max-width: 1024px) {
   .navbar {
-    padding: 10px 16px;
+    flex-wrap: wrap;
+  }
+
+  .ticker-bar {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    order: 1;
+  }
+
+  .ticker-stats {
+    flex-wrap: wrap;
   }
 
   .navbar-link {
