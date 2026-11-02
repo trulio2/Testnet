@@ -1,0 +1,289 @@
+.wallet-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  color: var(--dash-text);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.wallet-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.wallet-header h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  letter-spacing: normal;
+}
+
+.wallet-header p {
+  color: var(--dash-muted);
+}
+
+.wallet-top {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.wallet-panel {
+  border: 1px solid var(--dash-border);
+  border-radius: 6px;
+  background: var(--dash-panel);
+}
+
+h2.wallet-panel-title {
+  margin: 0;
+  color: var(--dash-muted);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.wallet-action {
+  padding: 4px 10px;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dash-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wallet-action:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.wallet-segments {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--dash-bg);
+}
+
+.wallet-segment {
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dash-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.wallet-segment:hover {
+  color: var(--dash-text);
+}
+
+.wallet-segment.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.wallet-action:focus-visible,
+.wallet-segment:focus-visible,
+.deposit-submit:focus-visible {
+  outline: 2px solid var(--dash-cyan);
+  outline-offset: 1px;
+}
+
+/* Balances */
+
+.wallet-balance {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.wallet-balance-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  color: var(--dash-muted);
+  font-size: 11px;
+}
+
+.wallet-balance-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+.wallet-balance-amount {
+  color: var(--text-h);
+  font-family: var(--mono);
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.wallet-balance-rows {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 8px;
+  margin: 0;
+}
+
+.wallet-balance-rows dt {
+  color: var(--dash-muted);
+}
+
+.wallet-balance-rows dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Deposit */
+
+.deposit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.deposit-form form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.deposit-form .wallet-segments {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.deposit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--dash-muted);
+  font-size: 11px;
+}
+
+.deposit-field input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 4px;
+  background: var(--dash-bg);
+  color: var(--dash-text);
+  font-family: var(--mono);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.deposit-field input:focus {
+  border-color: var(--accent-border);
+  outline: 0;
+}
+
+.deposit-quick {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.deposit-submit {
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--dash-bg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.deposit-feedback {
+  font-size: 12px;
+}
+
+.deposit-feedback-error {
+  color: var(--dash-red);
+}
+
+/* History */
+
+.funds-history-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--dash-border);
+}
+
+.funds-history-empty {
+  padding: 16px;
+  color: var(--dash-muted);
+}
+
+.funds-history-scroll {
+  max-height: 480px;
+  overflow: auto;
+}
+
+.funds-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.funds-history-table th {
+  position: sticky;
+  top: 0;
+  padding: 6px 16px;
+  background: var(--dash-panel);
+  color: var(--dash-muted);
+  font-size: 11px;
+  font-weight: 400;
+  text-align: left;
+}
+
+.funds-history-table td {
+  padding: 5px 16px;
+  border-top: 1px solid var(--dash-border);
+  font-variant-numeric: tabular-nums;
+}
+
+.funds-history-table td:first-child,
+.funds-history-table td.numeric {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.funds-history-table .numeric {
+  text-align: right;
+}
+
+@media (max-width: 860px) {
+  .wallet-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

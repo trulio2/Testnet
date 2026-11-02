@@ -1,8 +1,11 @@
 import type {
   AccountSummary,
+  Currency,
+  DepositFundsResult,
   Fill,
   IMarketService,
   ITradingService,
+  LedgerEntry,
   MarkPrices,
   Order,
   OrderDraft,
@@ -15,6 +18,7 @@ import type {
 } from '@/types'
 import { getMidPrice, MINUTE_CANDLES_PAGE_SIZE } from '@/utils'
 import {
+  addDeposit,
   cancelOpenOrder,
   createAccount,
   getAccountSummary,
@@ -69,10 +73,30 @@ export default class TradingService implements ITradingService {
     })
   }
 
-  public getAccountSummary(): AccountSummary {
+  public getAccountSummary(currency: Currency): AccountSummary {
     const account = tradingStore((state) => state.account)
 
-    return getAccountSummary(account, this.getMarkPrices())
+    return getAccountSummary(account, currency, this.getMarkPrices())
+  }
+
+  public getLedger(): LedgerEntry[] {
+    return tradingStore((state) => state.account.ledger)
+  }
+
+  public depositFunds(currency: Currency, amount: number): DepositFundsResult {
+    const { account, setAccount } = tradingStore.getState()
+    const result = addDeposit(
+      account,
+      currency,
+      amount,
+      this.marketService.getMarketTime()
+    )
+
+    if (!result.ok) return result
+
+    setAccount(result.account)
+
+    return { ok: true, entry: result.entry }
   }
 
   public getPositions(): PositionView[] {
@@ -151,7 +175,9 @@ export default class TradingService implements ITradingService {
   }
 
   public resetAccount(): void {
-    tradingStore.getState().setAccount(createAccount())
+    tradingStore
+      .getState()
+      .setAccount(createAccount(this.marketService.getMarketTime()))
   }
 
   // Replays the time the stream wasn't running: from the last saved point after

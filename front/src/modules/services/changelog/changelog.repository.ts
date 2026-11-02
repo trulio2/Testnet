@@ -13,7 +13,11 @@ export default class ChangelogRepository implements IChangelogRepository {
           },
           {
             type: 'added',
-            text: 'Simulated trading: market and limit orders, long and short positions, fees and a 100,000 USD account saved in your browser.'
+            text: 'Simulated trading: market and limit orders, long and short positions, and fees, saved in your browser.'
+          },
+          {
+            type: 'added',
+            text: 'Wallet page with separate USD and BRL balances, an option to add funds, and a funds history.'
           },
           {
             type: 'added',

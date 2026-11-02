@@ -2,11 +2,18 @@ export type Locale = 'en' | 'pt'
 
 interface IPages {
   home: {}
+  wallet: {
+    title: string
+    description: string
+    reset: string
+    resetConfirm: string
+  }
   changelog: {}
 }
 
 interface INav {
   home: string
+  wallet: string
   changelog: string
 }
 
@@ -59,8 +66,33 @@ interface IComponents {
     equity: string
     usedMargin: string
     available: string
-    reset: string
-    resetConfirm: string
+    addFunds: string
+  }
+  walletBalance: {
+    usedFor: string
+  }
+  depositForm: {
+    title: string
+    currency: string
+    amount: string
+    submit: string
+    added: string
+    invalidAmount: string
+  }
+  fundsHistory: {
+    title: string
+    filter: string
+    all: string
+    time: string
+    type: string
+    market: string
+    currency: string
+    amount: string
+    balance: string
+    initial: string
+    deposit: string
+    trade: string
+    empty: string
   }
   session: {
     title: string

@@ -58,6 +58,14 @@
   letter-spacing: normal;
 }
 
+.pnl-up {
+  color: var(--dash-green);
+}
+
+.pnl-down {
+  color: var(--dash-red);
+}
+
 .navbar {
   position: sticky;
   top: 0;

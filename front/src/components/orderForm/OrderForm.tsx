@@ -17,16 +17,10 @@ interface Feedback {
   text: string
 }
 
-function parseDecimal(value: string) {
-  const normalized = value.trim().replace(',', '.')
-
-  return normalized === '' ? NaN : Number(normalized)
-}
-
 export default function OrderForm({ symbol }: { symbol: SymbolId }) {
   const { t } = useLocale()
   const { config, formatPrice, formatQty } = useSymbol(symbol)
-  const { formatMoney } = useMoneyFormat()
+  const { formatMoney, parseDecimal } = useMoneyFormat()
   const draft = useOrderDraft(symbol)
   const markPrice = useMarkPrice(symbol)
   const status = useConnectionStatus()

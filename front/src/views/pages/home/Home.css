@@ -404,7 +404,7 @@ h2.trade-panel-title {
 .order-type-tab:focus-visible,
 .orders-tab:focus-visible,
 .panel-action:focus-visible,
-.account-reset:focus-visible {
+.account-link:focus-visible {
   outline: 2px solid var(--dash-cyan);
   outline-offset: 1px;
 }
@@ -450,28 +450,11 @@ h2.trade-panel-title {
   text-align: right;
 }
 
-.account-reset {
+.account-link {
+  display: inline-block;
   margin: 0 12px 10px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--dash-muted);
-  font: inherit;
+  color: var(--accent);
   font-size: 11px;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.account-reset:hover {
-  color: var(--dash-text);
-}
-
-.pnl-up {
-  color: var(--dash-green);
-}
-
-.pnl-down {
-  color: var(--dash-red);
 }
 
 /* Positions, orders, fills */

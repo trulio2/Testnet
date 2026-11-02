@@ -39,7 +39,7 @@ function PositionRow({ position }: { position: PositionView }) {
           : formatPrice(position.markPrice)}
       </td>
       <td className={getPnlClass(position.unrealizedPnl)}>
-        {formatSignedMoney(position.unrealizedPnl)}
+        {formatSignedMoney(position.unrealizedPnl)} {config.quote}
       </td>
       <td>
         <button
@@ -96,9 +96,11 @@ function FillRow({ fill }: { fill: Fill }) {
       <td>{formatQty(fill.qty)}</td>
       <td>{formatPrice(fill.price)}</td>
       <td>{t(`components.ordersPanel.${fill.liquidity}`)}</td>
-      <td>{formatMoney(fill.fee)}</td>
+      <td>
+        {formatMoney(fill.fee)} {config.quote}
+      </td>
       <td className={getPnlClass(fill.realizedPnl)}>
-        {formatSignedMoney(fill.realizedPnl)}
+        {formatSignedMoney(fill.realizedPnl)} {config.quote}
       </td>
     </tr>
   )

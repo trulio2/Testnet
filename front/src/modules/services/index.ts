@@ -18,6 +18,7 @@ import {
   TradingService,
   useAccountSummary,
   useFills,
+  useLedger,
   useMarkPrice,
   useOpenOrders,
   useOrderDraft,
@@ -25,7 +26,8 @@ import {
   usePositions,
   useSymbolOrders,
   useTradingActions,
-  useMoneyFormat
+  useMoneyFormat,
+  useWallet
 } from './trading'
 
 export {
@@ -41,6 +43,7 @@ export {
   useCandles,
   useConnectionStatus,
   useFills,
+  useLedger,
   useLastPrice,
   useLocale,
   useMarkPrice,
@@ -56,5 +59,6 @@ export {
   useSymbols,
   useTicker,
   useTradingActions,
-  useMoneyFormat
+  useMoneyFormat,
+  useWallet
 }

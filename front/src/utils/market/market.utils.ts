@@ -145,3 +145,14 @@ export function formatSignedDecimal(
     maximumFractionDigits: decimals
   }).format(value)
 }
+
+export function formatUtcDateTime(time: number): string {
+  return new Date(time).toISOString().slice(0, 19).replace('T', ' ')
+}
+
+// Accepts a comma as the decimal separator, which pt users will type.
+export function parseDecimalInput(value: string): number {
+  const normalized = value.trim().replace(',', '.')
+
+  return normalized === '' ? NaN : Number(normalized)
+}

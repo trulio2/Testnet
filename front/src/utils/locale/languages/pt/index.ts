@@ -3,10 +3,19 @@ import { type ITranslations } from '@/types'
 export const pt: ITranslations = {
   pages: {
     home: {},
+    wallet: {
+      title: 'Carteira',
+      description:
+        'Fundos simulados para testes. USD garante BTC/USD e BRL garante USD/BRL.',
+      reset: 'Redefinir conta',
+      resetConfirm:
+        'Redefinir a conta? Os saldos voltam aos valores iniciais, e posições, ordens abertas, execuções e histórico de fundos serão apagados.'
+    },
     changelog: {}
   },
   nav: {
     home: 'Início',
+    wallet: 'Carteira',
     changelog: 'Changelog'
   },
 
@@ -49,7 +58,8 @@ export const pt: ITranslations = {
         invalidPrice: 'Informe um preço válido.',
         belowMinNotional:
           'O valor da ordem deve ser de pelo menos {min} {quote}.',
-        insufficientMargin: 'Margem disponível insuficiente.',
+        insufficientMargin:
+          'Saldo disponível em {quote} insuficiente. Adicione fundos na carteira.',
         marketUnavailable: 'Dados de mercado indisponíveis no momento.'
       }
     },
@@ -60,9 +70,33 @@ export const pt: ITranslations = {
       equity: 'Patrimônio',
       usedMargin: 'Margem em uso',
       available: 'Disponível',
-      reset: 'Redefinir conta',
-      resetConfirm:
-        'Redefinir a conta? Posições, ordens abertas e execuções serão apagadas.'
+      addFunds: 'Adicionar fundos'
+    },
+    walletBalance: {
+      usedFor: 'Usado em {symbols}'
+    },
+    depositForm: {
+      title: 'Adicionar fundos',
+      currency: 'Moeda',
+      amount: 'Valor ({currency})',
+      submit: 'Adicionar fundos',
+      added: '{amount} {currency} adicionados.',
+      invalidAmount: 'Informe um valor entre {min} e {max}.'
+    },
+    fundsHistory: {
+      title: 'Histórico de fundos',
+      filter: 'Filtrar por moeda',
+      all: 'Todas',
+      time: 'Hora (UTC)',
+      type: 'Tipo',
+      market: 'Mercado',
+      currency: 'Moeda',
+      amount: 'Valor',
+      balance: 'Saldo',
+      initial: 'Saldo inicial',
+      deposit: 'Depósito',
+      trade: 'Negociação',
+      empty: 'Nenhum lançamento ainda.'
     },
     session: {
       title: 'O Testnet está aberto em outra aba',
@@ -84,9 +118,9 @@ export const pt: ITranslations = {
       price: 'Preço',
       time: 'Hora (UTC)',
       liquidity: 'Liquidez',
-      fee: 'Taxa (USD)',
-      unrealizedPnl: 'PnL não realizado (USD)',
-      realizedPnl: 'PnL realizado (USD)',
+      fee: 'Taxa',
+      unrealizedPnl: 'PnL não realizado',
+      realizedPnl: 'PnL realizado',
       long: 'Long',
       short: 'Short',
       buy: 'Compra',

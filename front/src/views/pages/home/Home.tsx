@@ -20,7 +20,7 @@ function Home() {
       <div className="trade-grid">
         <aside className="trade-panel order-panel">
           <OrderForm key={symbol} symbol={symbol} />
-          <AccountSummary />
+          <AccountSummary symbol={symbol} />
         </aside>
         <div className="trade-center">
           <PriceChart symbol={symbol} />

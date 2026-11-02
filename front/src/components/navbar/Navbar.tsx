@@ -8,13 +8,16 @@ export default function Navbar() {
   const { locale, setLocale, t } = useLocale()
   const symbol = useActiveSymbol()
 
-  const isLinkActive = (to: string) =>
-    to === '/' ? !pathname.startsWith('/changelog') : pathname.startsWith(to)
-
   const links = [
     { to: '/', label: t('nav.home') },
+    { to: '/wallet', label: t('nav.wallet') },
     { to: '/changelog', label: t('nav.changelog') }
   ]
+
+  const isLinkActive = (to: string) =>
+    to === '/'
+      ? !links.some((link) => link.to !== '/' && pathname.startsWith(link.to))
+      : pathname.startsWith(to)
 
   return (
     <header className="navbar">

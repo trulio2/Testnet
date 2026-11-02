@@ -1,4 +1,4 @@
-import type { OrderBook, SymbolId, TradeSide } from './market.types'
+import type { Currency, OrderBook, SymbolId, TradeSide } from './market.types'
 
 export type OrderType = 'market' | 'limit'
 
@@ -47,13 +47,41 @@ export interface Position {
   avgEntry: number
 }
 
+export type LedgerEntryType = 'initial' | 'deposit' | 'trade'
+
+export interface LedgerEntry {
+  id: number
+  type: LedgerEntryType
+  currency: Currency
+  amount: number
+  balance: number
+  time: number
+  symbol?: SymbolId
+}
+
 export interface TradingAccount {
+  balances: Record<Currency, number>
+  positions: Partial<Record<SymbolId, Position>>
+  openOrders: Order[]
+  fills: Fill[]
+  ledger: LedgerEntry[]
+  nextId: number
+}
+
+export interface TradingAccountV1 {
   walletBalance: number
   positions: Partial<Record<SymbolId, Position>>
   openOrders: Order[]
   fills: Fill[]
   nextId: number
 }
+
+export type DepositResult =
+  | { ok: true; account: TradingAccount; entry: LedgerEntry }
+  | { ok: false; reason: 'invalidAmount' }
+
+export type DepositFundsResult =
+  { ok: true; entry: LedgerEntry } | { ok: false; reason: 'invalidAmount' }
 
 export type MarkPrices = Partial<Record<SymbolId, number>>
 
@@ -91,7 +119,9 @@ export interface OrderDraft {
 
 export interface ITradingService {
   start(): void
-  getAccountSummary(): AccountSummary
+  getAccountSummary(currency: Currency): AccountSummary
+  getLedger(): LedgerEntry[]
+  depositFunds(currency: Currency, amount: number): DepositFundsResult
   getPositions(): PositionView[]
   getPosition(symbol: SymbolId): Position | undefined
   getOpenOrders(): Order[]

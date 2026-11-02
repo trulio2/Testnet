@@ -1,7 +1,10 @@
 import type {
   AccountSummary,
   Candle,
+  Currency,
+  DepositResult,
   Fill,
+  LedgerEntry,
   Liquidity,
   MarkPrices,
   Order,
@@ -10,37 +13,115 @@ import type {
   OrderSubmission,
   Position,
   PriceCrossing,
-  SymbolConfig,
   SymbolId,
   TradeSide,
-  TradingAccount
+  TradingAccount,
+  TradingAccountV1
 } from '@/types'
-import { roundToDecimals, SYMBOLS } from '@/utils'
+import { CURRENCIES, MAX_DEPOSIT, roundToDecimals, SYMBOLS } from '@/utils'
 
-export const INITIAL_BALANCE = 100_000
+export const INITIAL_BALANCES: Record<Currency, number> = {
+  USD: 100_000,
+  BRL: 500_000
+}
 export const MAKER_FEE_RATE = 0.0002
 export const TAKER_FEE_RATE = 0.0005
 export const LEVERAGE = 1
 const MAX_FILLS = 200
+const MAX_LEDGER_ENTRIES = 500
+const MONEY_DECIMALS = 2
 
-export function createAccount(): TradingAccount {
+function createInitialLedger(
+  balances: Record<Currency, number>,
+  firstId: number,
+  time: number
+): LedgerEntry[] {
+  return CURRENCIES.map((currency, index) => ({
+    id: firstId + index,
+    type: 'initial',
+    currency,
+    amount: balances[currency],
+    balance: balances[currency],
+    time
+  }))
+}
+
+export function createAccount(time = 0): TradingAccount {
   return {
-    walletBalance: INITIAL_BALANCE,
+    balances: { ...INITIAL_BALANCES },
     positions: {},
     openOrders: [],
     fills: [],
-    nextId: 1
+    ledger: createInitialLedger(INITIAL_BALANCES, 1, time),
+    nextId: CURRENCIES.length + 1
   }
 }
 
-// The only non-USD quote is BRL on USD/BRL, so a symbol's own price is always
-// the rate that converts its quote currency to USD.
-function quoteToUsd(config: SymbolConfig, amount: number, price: number) {
-  return config.quote === 'USD' ? amount : amount / price
+// Saved accounts before the USD and BRL split held one USD balance and converted
+// USD/BRL fees and PnL to USD at the fill price, which this reverses.
+export function migrateAccountFromV1(
+  account: TradingAccountV1,
+  time: number
+): TradingAccount {
+  const balances = { USD: account.walletBalance, BRL: INITIAL_BALANCES.BRL }
+
+  return {
+    balances,
+    positions: account.positions,
+    openOrders: account.openOrders,
+    fills: account.fills.map((fill) =>
+      SYMBOLS[fill.symbol].quote === 'USD'
+        ? fill
+        : {
+            ...fill,
+            fee: fill.fee * fill.price,
+            realizedPnl: fill.realizedPnl * fill.price
+          }
+    ),
+    ledger: createInitialLedger(balances, account.nextId, time),
+    nextId: account.nextId + CURRENCIES.length
+  }
 }
 
-function notionalUsd(config: SymbolConfig, qty: number, price: number) {
-  return config.quote === 'USD' ? qty * price : qty
+function appendLedgerEntry(
+  account: TradingAccount,
+  entry: Omit<LedgerEntry, 'id' | 'balance'>
+): { account: TradingAccount; entry: LedgerEntry } {
+  const balance = account.balances[entry.currency] + entry.amount
+  const created = { ...entry, id: account.nextId, balance }
+
+  return {
+    entry: created,
+    account: {
+      ...account,
+      balances: { ...account.balances, [entry.currency]: balance },
+      ledger: [created, ...account.ledger].slice(0, MAX_LEDGER_ENTRIES),
+      nextId: account.nextId + 1
+    }
+  }
+}
+
+export function addDeposit(
+  account: TradingAccount,
+  currency: Currency,
+  amount: number,
+  time: number
+): DepositResult {
+  const rounded = roundToDecimals(amount, MONEY_DECIMALS)
+
+  if (!Number.isFinite(rounded) || rounded <= 0 || rounded > MAX_DEPOSIT) {
+    return { ok: false, reason: 'invalidAmount' }
+  }
+
+  return {
+    ok: true,
+    ...appendLedgerEntry(account, {
+      type: 'deposit',
+      currency,
+      amount: rounded,
+      time
+    })
+  }
 }
 
 // Fills against the visible levels. An order larger than the visible book takes
@@ -76,11 +157,8 @@ function getSymbolMargin(
   position: Position | undefined,
   orders: Order[]
 ): number {
-  const config = SYMBOLS[symbol]
   const positionQty = position?.qty ?? 0
-  const positionValue = position
-    ? notionalUsd(config, Math.abs(positionQty), position.avgEntry)
-    : 0
+  const positionValue = position ? Math.abs(positionQty) * position.avgEntry : 0
   let longValue = positionQty > 0 ? positionValue : 0
   let shortValue = positionQty < 0 ? positionValue : 0
   let closableByBuys = Math.max(-positionQty, 0)
@@ -93,12 +171,12 @@ function getSymbolMargin(
       const closing = Math.min(order.qty, closableByBuys)
 
       closableByBuys -= closing
-      longValue += notionalUsd(config, order.qty - closing, order.price)
+      longValue += (order.qty - closing) * order.price
     } else {
       const closing = Math.min(order.qty, closableBySells)
 
       closableBySells -= closing
-      shortValue += notionalUsd(config, order.qty - closing, order.price)
+      shortValue += (order.qty - closing) * order.price
     }
   }
 
@@ -106,40 +184,48 @@ function getSymbolMargin(
 }
 
 function getUsedMargin(
+  currency: Currency,
   positions: TradingAccount['positions'],
   orders: Order[]
 ) {
-  return (Object.keys(SYMBOLS) as SymbolId[]).reduce(
-    (total, symbol) =>
-      total + getSymbolMargin(symbol, positions[symbol], orders),
-    0
-  )
+  return (Object.keys(SYMBOLS) as SymbolId[])
+    .filter((symbol) => SYMBOLS[symbol].quote === currency)
+    .reduce(
+      (total, symbol) =>
+        total + getSymbolMargin(symbol, positions[symbol], orders),
+      0
+    )
 }
 
+// In the symbol's quote currency.
 export function getUnrealizedPnl(position: Position, markPrice?: number) {
   if (markPrice === undefined) return 0
 
-  return quoteToUsd(
-    SYMBOLS[position.symbol],
-    position.qty * (markPrice - position.avgEntry),
-    markPrice
-  )
+  return position.qty * (markPrice - position.avgEntry)
 }
 
 export function getAccountSummary(
   account: TradingAccount,
+  currency: Currency,
   marks: MarkPrices
 ): AccountSummary {
-  const unrealizedPnl = Object.values(account.positions).reduce(
-    (total, position) =>
-      total + getUnrealizedPnl(position, marks[position.symbol]),
-    0
+  const unrealizedPnl = Object.values(account.positions)
+    .filter((position) => SYMBOLS[position.symbol].quote === currency)
+    .reduce(
+      (total, position) =>
+        total + getUnrealizedPnl(position, marks[position.symbol]),
+      0
+    )
+  const walletBalance = account.balances[currency]
+  const equity = walletBalance + unrealizedPnl
+  const usedMargin = getUsedMargin(
+    currency,
+    account.positions,
+    account.openOrders
   )
-  const equity = account.walletBalance + unrealizedPnl
-  const usedMargin = getUsedMargin(account.positions, account.openOrders)
 
   return {
-    walletBalance: account.walletBalance,
+    walletBalance,
     unrealizedPnl,
     equity,
     usedMargin,
@@ -168,8 +254,7 @@ function applyFill(
   const isClosing =
     currentQty !== 0 && Math.sign(currentQty) !== Math.sign(signedQty)
   const closedQty = isClosing ? Math.min(Math.abs(currentQty), qty) : 0
-  const realizedQuote =
-    closedQty * (price - currentEntry) * Math.sign(currentQty)
+  const realizedPnl = closedQty * (price - currentEntry) * Math.sign(currentQty)
   const nextQty = roundToDecimals(currentQty + signedQty, config.qtyDecimals)
 
   let nextEntry = price
@@ -181,9 +266,8 @@ function applyFill(
     nextEntry = currentEntry
   }
 
-  const realizedPnl = quoteToUsd(config, realizedQuote, price)
   const feeRate = liquidity === 'maker' ? MAKER_FEE_RATE : TAKER_FEE_RATE
-  const fee = notionalUsd(config, qty, price) * feeRate
+  const fee = qty * price * feeRate
   const positions = { ...account.positions }
 
   if (nextQty === 0) delete positions[symbol]
@@ -202,14 +286,23 @@ function applyFill(
     time
   }
 
+  const { account: settled } = appendLedgerEntry(
+    { ...account, nextId: account.nextId + 1 },
+    {
+      type: 'trade',
+      currency: config.quote,
+      amount: realizedPnl - fee,
+      time,
+      symbol
+    }
+  )
+
   return {
     fill,
     account: {
-      ...account,
-      walletBalance: account.walletBalance + realizedPnl - fee,
+      ...settled,
       positions,
-      fills: [fill, ...account.fills].slice(0, MAX_FILLS),
-      nextId: account.nextId + 1
+      fills: [fill, ...account.fills].slice(0, MAX_FILLS)
     }
   }
 }
@@ -276,14 +369,18 @@ export function submitOrder(
     price: referencePrice,
     createdAt: time
   }
-  const { equity } = getAccountSummary(account, marks)
-  const marginBefore = getUsedMargin(account.positions, account.openOrders)
-  const marginAfter = getUsedMargin(account.positions, [
+  const { equity } = getAccountSummary(account, config.quote, marks)
+  const marginBefore = getUsedMargin(
+    config.quote,
+    account.positions,
+    account.openOrders
+  )
+  const marginAfter = getUsedMargin(config.quote, account.positions, [
     ...account.openOrders,
     order
   ])
   const feeRate = isTaker ? TAKER_FEE_RATE : MAKER_FEE_RATE
-  const fee = notionalUsd(config, qty, referencePrice) * feeRate
+  const fee = qty * referencePrice * feeRate
 
   // Orders that don't add exposure stay allowed so an underwater position can
   // always be closed.

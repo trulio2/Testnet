@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_DEPOSIT } from '@/utils'
 import type {
   Candle,
   OrderBook,
@@ -8,13 +9,15 @@ import type {
   TradingAccount
 } from '@/types'
 import {
+  addDeposit,
   cancelOpenOrder,
   createAccount,
   getAccountSummary,
   getBookFillPrice,
-  INITIAL_BALANCE,
+  INITIAL_BALANCES,
   MAKER_FEE_RATE,
   matchRestingOrders,
+  migrateAccountFromV1,
   replayCandles,
   submitOrder,
   TAKER_FEE_RATE
@@ -100,8 +103,8 @@ describe('market orders', () => {
       qty: 1,
       avgEntry: 101
     })
-    expect(account.walletBalance).toBeCloseTo(
-      INITIAL_BALANCE - 101 * TAKER_FEE_RATE
+    expect(account.balances.USD).toBeCloseTo(
+      INITIAL_BALANCES.USD - 101 * TAKER_FEE_RATE
     )
   })
 
@@ -141,7 +144,7 @@ describe('limit orders', () => {
     expect(fill).toBeUndefined()
     expect(order?.price).toBe(95)
     expect(account.openOrders).toHaveLength(1)
-    expect(account.walletBalance).toBe(INITIAL_BALANCE)
+    expect(account.balances.USD).toBe(INITIAL_BALANCES.USD)
   })
 
   it('takes the best ask, not its own price, when it crosses', () => {
@@ -202,8 +205,8 @@ describe('matchRestingOrders', () => {
 
     expect(account.openOrders).toHaveLength(0)
     expect(account.fills[0]).toMatchObject({ price: 95, liquidity: 'maker' })
-    expect(account.walletBalance).toBeCloseTo(
-      INITIAL_BALANCE - 95 * MAKER_FEE_RATE
+    expect(account.balances.USD).toBeCloseTo(
+      INITIAL_BALANCES.USD - 95 * MAKER_FEE_RATE
     )
   })
 
@@ -436,31 +439,320 @@ describe('positions', () => {
     )
     const fees = (100 + 150) * TAKER_FEE_RATE
 
-    expect(account.walletBalance).toBeCloseTo(INITIAL_BALANCE + 50 - fees)
+    expect(account.balances.USD).toBeCloseTo(INITIAL_BALANCES.USD + 50 - fees)
   })
 })
 
 describe('USD/BRL', () => {
-  it('converts realized pnl and fees from BRL to USD at the fill price', () => {
+  it('settles realized pnl and fees in BRL', () => {
     const opened = fillAt(createAccount(), 'buy', 1000, 5, 'USDBRL')
     const account = fillAt(opened, 'sell', 1000, 5.5, 'USDBRL')
     const fill = account.fills[0]
+    const fees = (5000 + 5500) * TAKER_FEE_RATE
 
-    expect(fill.realizedPnl).toBeCloseTo(500 / 5.5)
-    expect(fill.fee).toBeCloseTo(1000 * TAKER_FEE_RATE)
+    expect(fill.realizedPnl).toBeCloseTo(500)
+    expect(fill.fee).toBeCloseTo(5500 * TAKER_FEE_RATE)
+    expect(account.balances.BRL).toBeCloseTo(INITIAL_BALANCES.BRL + 500 - fees)
   })
 
-  it('converts unrealized pnl at the mark price', () => {
+  it('leaves the USD balance alone', () => {
     const account = fillAt(createAccount(), 'buy', 1000, 5, 'USDBRL')
-    const { unrealizedPnl } = getAccountSummary(account, { USDBRL: 5.5 })
 
-    expect(unrealizedPnl).toBeCloseTo(500 / 5.5)
+    expect(account.balances.USD).toBe(INITIAL_BALANCES.USD)
   })
 
-  it('needs margin in USD, not BRL', () => {
+  it('reports unrealized pnl in BRL', () => {
+    const account = fillAt(createAccount(), 'buy', 1000, 5, 'USDBRL')
+    const { unrealizedPnl } = getAccountSummary(account, 'BRL', { USDBRL: 5.5 })
+
+    expect(unrealizedPnl).toBeCloseTo(500)
+  })
+
+  it('needs margin in BRL', () => {
     const account = fillAt(createAccount(), 'buy', 1000, 5, 'USDBRL')
 
-    expect(getAccountSummary(account, {}).usedMargin).toBeCloseTo(1000)
+    expect(getAccountSummary(account, 'BRL', {}).usedMargin).toBeCloseTo(5000)
+    expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(0)
+  })
+})
+
+describe('separate balances', () => {
+  it('rejects a USD/BRL order larger than the BRL balance', () => {
+    const result = submitOrder(createAccount(), {
+      request: { symbol: 'USDBRL', side: 'buy', type: 'market', qty: 200_000 },
+      book: bookAround(5, 5, 1_000_000),
+      marks: {},
+      time: NOW
+    })
+
+    expect(result).toEqual({ ok: false, reason: 'insufficientMargin' })
+  })
+
+  it('does not let USD pay for a USD/BRL order', () => {
+    const empty = { ...createAccount(), balances: { USD: 1_000_000, BRL: 10 } }
+    const result = submitOrder(empty, {
+      request: { symbol: 'USDBRL', side: 'buy', type: 'market', qty: 100 },
+      book: bookAround(5, 5, 1_000_000),
+      marks: {},
+      time: NOW
+    })
+
+    expect(result).toEqual({ ok: false, reason: 'insufficientMargin' })
+  })
+
+  it('does not let a USD loss block a USD/BRL order', () => {
+    const opened = fillAt(createAccount(), 'buy', 900, 100)
+    const result = submitOrder(opened, {
+      request: { symbol: 'USDBRL', side: 'buy', type: 'market', qty: 5000 },
+      book: bookAround(5, 5, 100_000),
+      marks: { BTCUSD: 10, USDBRL: 5 },
+      time: NOW
+    })
+
+    expect(result.ok).toBe(true)
+  })
+})
+
+describe('ledger', () => {
+  it('starts with a starting-balance entry per currency', () => {
+    const { ledger } = createAccount(NOW)
+
+    expect(ledger).toEqual([
+      expect.objectContaining({
+        type: 'initial',
+        currency: 'USD',
+        amount: INITIAL_BALANCES.USD,
+        balance: INITIAL_BALANCES.USD,
+        time: NOW
+      }),
+      expect.objectContaining({
+        type: 'initial',
+        currency: 'BRL',
+        amount: INITIAL_BALANCES.BRL,
+        balance: INITIAL_BALANCES.BRL,
+        time: NOW
+      })
+    ])
+  })
+
+  it('adds one entry per fill with the net of pnl and fee', () => {
+    const account = fillAt(
+      fillAt(createAccount(), 'buy', 1, 100),
+      'sell',
+      1,
+      150
+    )
+
+    expect(account.ledger[0]).toMatchObject({
+      type: 'trade',
+      currency: 'USD',
+      symbol: 'BTCUSD'
+    })
+    expect(account.ledger[0].amount).toBeCloseTo(50 - 150 * TAKER_FEE_RATE)
+    expect(account.ledger[0].balance).toBe(account.balances.USD)
+  })
+
+  it('records maker fills too', () => {
+    const { account } = place(createAccount(), {
+      symbol: 'BTCUSD',
+      side: 'buy',
+      type: 'limit',
+      qty: 1,
+      price: 95
+    })
+    const filled = matchRestingOrders(
+      account,
+      'BTCUSD',
+      { low: 95, high: 95 },
+      NOW
+    )
+
+    expect(filled.ledger[0].amount).toBeCloseTo(-95 * MAKER_FEE_RATE)
+  })
+
+  it('adds nothing for an order that only rests', () => {
+    const start = createAccount()
+    const { account } = place(start, {
+      symbol: 'BTCUSD',
+      side: 'buy',
+      type: 'limit',
+      qty: 1,
+      price: 95
+    })
+
+    expect(account.ledger).toEqual(start.ledger)
+  })
+
+  it('gives every entry and fill its own id', () => {
+    const account = fillAt(
+      fillAt(createAccount(), 'buy', 1, 100),
+      'sell',
+      1,
+      100
+    )
+    const ledgerIds = account.ledger.map((entry) => entry.id)
+
+    expect(new Set(ledgerIds).size).toBe(ledgerIds.length)
+    expect(Math.max(...ledgerIds)).toBeLessThan(account.nextId)
+  })
+
+  it('reconciles: each balance equals its entries added up', () => {
+    let account = createAccount()
+
+    account = fillAt(account, 'buy', 1, 100)
+    account = fillAt(account, 'sell', 1, 120)
+    account = fillAt(account, 'sell', 1000, 5, 'USDBRL')
+    account = fillAt(account, 'buy', 1000, 4.5, 'USDBRL')
+
+    for (const currency of ['USD', 'BRL'] as const) {
+      const total = account.ledger
+        .filter((entry) => entry.currency === currency)
+        .reduce((sum, entry) => sum + entry.amount, 0)
+
+      expect(total).toBeCloseTo(account.balances[currency])
+    }
+  })
+
+  it('keeps only the newest 500 entries', () => {
+    let account = createAccount()
+
+    for (let i = 0; i < 510; i++) {
+      const result = addDeposit(account, 'USD', 1, i)
+
+      if (!result.ok) throw new Error('rejected')
+
+      account = result.account
+    }
+
+    expect(account.ledger).toHaveLength(500)
+    expect(account.ledger[0].time).toBe(509)
+    expect(account.balances.USD).toBe(INITIAL_BALANCES.USD + 510)
+  })
+})
+
+describe('addDeposit', () => {
+  it('credits only the chosen currency and records it', () => {
+    const result = addDeposit(createAccount(), 'BRL', 250.5, NOW)
+
+    if (!result.ok) throw new Error('rejected')
+
+    expect(result.account.balances).toEqual({
+      USD: INITIAL_BALANCES.USD,
+      BRL: INITIAL_BALANCES.BRL + 250.5
+    })
+    expect(result.entry).toMatchObject({
+      type: 'deposit',
+      currency: 'BRL',
+      amount: 250.5,
+      balance: INITIAL_BALANCES.BRL + 250.5,
+      time: NOW
+    })
+    expect(result.account.ledger[0]).toEqual(result.entry)
+  })
+
+  it('rounds to cents', () => {
+    const result = addDeposit(createAccount(), 'USD', 10.126, NOW)
+
+    expect(result.ok && result.entry.amount).toBe(10.13)
+  })
+
+  it('allows the maximum', () => {
+    expect(addDeposit(createAccount(), 'USD', MAX_DEPOSIT, NOW).ok).toBe(true)
+  })
+
+  it.each([0, -5, NaN, Infinity, 0.001, MAX_DEPOSIT + 1])(
+    'rejects an amount of %s',
+    (amount) => {
+      expect(addDeposit(createAccount(), 'USD', amount, NOW)).toEqual({
+        ok: false,
+        reason: 'invalidAmount'
+      })
+    }
+  )
+
+  it('makes room for orders that were rejected before', () => {
+    const request: OrderRequest = {
+      symbol: 'BTCUSD',
+      side: 'buy',
+      type: 'market',
+      qty: 2000
+    }
+    const book = bookAround(99, 101, 10_000)
+    const before = createAccount()
+
+    expect(
+      submitOrder(before, { request, book, marks: {}, time: NOW }).ok
+    ).toBe(false)
+
+    const funded = addDeposit(before, 'USD', 200_000, NOW)
+
+    if (!funded.ok) throw new Error('rejected')
+
+    expect(
+      submitOrder(funded.account, { request, book, marks: {}, time: NOW }).ok
+    ).toBe(true)
+  })
+})
+
+describe('migrateAccountFromV1', () => {
+  const v1 = {
+    walletBalance: 99_000,
+    positions: { BTCUSD: { symbol: 'BTCUSD' as const, qty: 1, avgEntry: 100 } },
+    openOrders: [],
+    fills: [
+      {
+        id: 7,
+        orderId: 6,
+        symbol: 'USDBRL' as const,
+        side: 'sell' as const,
+        qty: 100,
+        price: 5,
+        liquidity: 'taker' as const,
+        fee: 2,
+        realizedPnl: 10,
+        time: NOW
+      },
+      {
+        id: 5,
+        orderId: 4,
+        symbol: 'BTCUSD' as const,
+        side: 'buy' as const,
+        qty: 1,
+        price: 100,
+        liquidity: 'taker' as const,
+        fee: 3,
+        realizedPnl: 0,
+        time: NOW
+      }
+    ],
+    nextId: 8
+  }
+
+  it('keeps USD and starts BRL at its initial balance', () => {
+    const { balances } = migrateAccountFromV1(v1, NOW)
+
+    expect(balances).toEqual({ USD: 99_000, BRL: INITIAL_BALANCES.BRL })
+  })
+
+  it('converts USD/BRL fills back to BRL and leaves BTC/USD alone', () => {
+    const { fills } = migrateAccountFromV1(v1, NOW)
+
+    expect(fills[0]).toMatchObject({ fee: 10, realizedPnl: 50 })
+    expect(fills[1]).toMatchObject({ fee: 3, realizedPnl: 0 })
+  })
+
+  it('starts the ledger from the migrated balances with fresh ids', () => {
+    const { ledger, nextId } = migrateAccountFromV1(v1, NOW)
+
+    expect(ledger.map((entry) => [entry.id, entry.balance])).toEqual([
+      [8, 99_000],
+      [9, INITIAL_BALANCES.BRL]
+    ])
+    expect(nextId).toBe(10)
+  })
+
+  it('keeps positions', () => {
+    expect(migrateAccountFromV1(v1, NOW).positions).toEqual(v1.positions)
   })
 })
 
@@ -482,7 +774,7 @@ describe('margin', () => {
         symbol: 'BTCUSD',
         side: 'buy',
         type: 'market',
-        qty: INITIAL_BALANCE / 100
+        qty: INITIAL_BALANCES.USD / 100
       },
       book: bookAround(100, 100, 10_000),
       marks: {},
@@ -500,10 +792,10 @@ describe('margin', () => {
       qty: 1,
       price: 95
     })
-    const summary = getAccountSummary(account, {})
+    const summary = getAccountSummary(account, 'USD', {})
 
     expect(summary.usedMargin).toBe(95)
-    expect(summary.availableMargin).toBe(INITIAL_BALANCE - 95)
+    expect(summary.availableMargin).toBe(INITIAL_BALANCES.USD - 95)
   })
 
   it('charges nothing extra for a resting order that closes a position', () => {
@@ -516,7 +808,7 @@ describe('margin', () => {
       price: 200
     })
 
-    expect(getAccountSummary(account, {}).usedMargin).toBe(100)
+    expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(100)
   })
 
   it('charges only for the part of an order beyond the position', () => {
@@ -529,7 +821,7 @@ describe('margin', () => {
       price: 200
     })
 
-    expect(getAccountSummary(account, {}).usedMargin).toBe(400)
+    expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(400)
   })
 
   it('always allows closing an underwater position', () => {
@@ -548,9 +840,9 @@ describe('margin', () => {
   it('counts unrealized losses against new orders', () => {
     const opened = fillAt(createAccount(), 'buy', 900, 100)
     const result = submitOrder(opened, {
-      request: { symbol: 'USDBRL', side: 'buy', type: 'market', qty: 5000 },
-      book: bookAround(5, 5, 100_000),
-      marks: { BTCUSD: 10, USDBRL: 5 },
+      request: { symbol: 'BTCUSD', side: 'buy', type: 'market', qty: 2000 },
+      book: bookAround(10, 10, 100_000),
+      marks: { BTCUSD: 10 },
       time: NOW
     })
 
@@ -613,22 +905,22 @@ describe('cancelOpenOrder', () => {
     const account = cancelOpenOrder(second.account, first.order?.id ?? 0)
 
     expect(account.openOrders.map((order) => order.price)).toEqual([90])
-    expect(getAccountSummary(account, {}).usedMargin).toBe(90)
+    expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(90)
   })
 })
 
 describe('getAccountSummary', () => {
   it('adds unrealized pnl to equity', () => {
     const account = fillAt(createAccount(), 'sell', 1, 100)
-    const summary = getAccountSummary(account, { BTCUSD: 90 })
+    const summary = getAccountSummary(account, 'USD', { BTCUSD: 90 })
 
     expect(summary.unrealizedPnl).toBe(10)
-    expect(summary.equity).toBeCloseTo(account.walletBalance + 10)
+    expect(summary.equity).toBeCloseTo(account.balances.USD + 10)
   })
 
   it('treats a position with no mark as flat', () => {
     const account = fillAt(createAccount(), 'buy', 1, 100)
 
-    expect(getAccountSummary(account, {}).unrealizedPnl).toBe(0)
+    expect(getAccountSummary(account, 'USD', {}).unrealizedPnl).toBe(0)
   })
 })

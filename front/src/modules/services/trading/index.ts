@@ -2,6 +2,7 @@ import TradingService from './trading.service'
 import {
   useAccountSummary,
   useFills,
+  useLedger,
   useMarkPrice,
   useOpenOrders,
   useOrderDraft,
@@ -9,13 +10,15 @@ import {
   usePositions,
   useSymbolOrders,
   useTradingActions,
-  useMoneyFormat
+  useMoneyFormat,
+  useWallet
 } from './useTrading'
 
 export {
   TradingService,
   useAccountSummary,
   useFills,
+  useLedger,
   useMarkPrice,
   useOpenOrders,
   useOrderDraft,
@@ -23,5 +26,6 @@ export {
   usePositions,
   useSymbolOrders,
   useTradingActions,
-  useMoneyFormat
+  useMoneyFormat,
+  useWallet
 }

@@ -1,5 +1,7 @@
 export type SymbolId = 'BTCUSD' | 'USDBRL'
 
+export type Currency = 'USD' | 'BRL'
+
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
 
 export type ConnectionStatus = 'connecting' | 'live' | 'reconnecting'
@@ -12,7 +14,7 @@ export interface SymbolConfig {
   id: SymbolId
   label: string
   base: string
-  quote: 'USD' | 'BRL'
+  quote: Currency
   feedSymbol: string
   feedLabel: string
   tickSize: number

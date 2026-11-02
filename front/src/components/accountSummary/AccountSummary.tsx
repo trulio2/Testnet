@@ -1,19 +1,17 @@
+import { Link } from 'react-router-dom'
 import {
   useAccountSummary,
   useLocale,
-  useTradingActions,
-  useMoneyFormat
+  useMoneyFormat,
+  useSymbol
 } from '@/modules/services'
+import type { SymbolId } from '@/types'
 
-export default function AccountSummary() {
+export default function AccountSummary({ symbol }: { symbol: SymbolId }) {
   const { t } = useLocale()
-  const summary = useAccountSummary()
+  const { config } = useSymbol(symbol)
+  const summary = useAccountSummary(config.quote)
   const { formatMoney, formatSignedMoney } = useMoneyFormat()
-  const { resetAccount } = useTradingActions()
-
-  const handleReset = () => {
-    if (window.confirm(t('components.account.resetConfirm'))) resetAccount()
-  }
 
   const pnlDirection = summary.unrealizedPnl >= 0 ? 'up' : 'down'
 
@@ -23,7 +21,7 @@ export default function AccountSummary() {
       aria-label={t('components.account.title')}
     >
       <h2 className="trade-panel-title">
-        {t('components.account.title')} (USD)
+        {t('components.account.title')} ({config.quote})
       </h2>
       <dl className="account-rows">
         <dt>{t('components.account.wallet')}</dt>
@@ -41,9 +39,9 @@ export default function AccountSummary() {
         <dt>{t('components.account.available')}</dt>
         <dd>{formatMoney(summary.availableMargin)}</dd>
       </dl>
-      <button type="button" className="account-reset" onClick={handleReset}>
-        {t('components.account.reset')}
-      </button>
+      <Link to="/wallet" className="account-link">
+        {t('components.account.addFunds')}
+      </Link>
     </section>
   )
 }

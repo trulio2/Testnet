@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import IoC from '@/modules/ioc'
 import {
+  type Currency,
   type IMarketService,
   type ITradingService,
   type OrderDraft,
@@ -8,7 +9,15 @@ import {
   SERVICES,
   type SymbolId
 } from '@/types'
-import { formatDecimal, formatSignedDecimal } from '@/utils'
+import {
+  CURRENCIES,
+  formatCompact,
+  formatDecimal,
+  formatSignedDecimal,
+  formatUtcDateTime,
+  MAX_DEPOSIT,
+  parseDecimalInput
+} from '@/utils'
 import useLocale from '../locale/useLocale'
 
 const MONEY_DECIMALS = 2
@@ -23,6 +32,8 @@ const tradingActions = {
   cancelOrder: (orderId: number) => tradingService.cancelOrder(orderId),
   closePosition: (symbol: SymbolId) => tradingService.closePosition(symbol),
   resetAccount: () => tradingService.resetAccount(),
+  depositFunds: (currency: Currency, amount: number) =>
+    tradingService.depositFunds(currency, amount),
   updateOrderDraft: (symbol: SymbolId, changes: Partial<OrderDraft>) =>
     tradingService.updateOrderDraft(symbol, changes)
 }
@@ -31,8 +42,24 @@ export function useTradingActions() {
   return tradingActions
 }
 
-export function useAccountSummary() {
-  return tradingService.getAccountSummary()
+export function useAccountSummary(currency: Currency) {
+  return tradingService.getAccountSummary(currency)
+}
+
+// In the order entries were applied, not by time, so the running balance always
+// follows row to row even when catch-up adds an older fill.
+export function useLedger() {
+  return tradingService.getLedger()
+}
+
+const walletConfig = {
+  currencies: CURRENCIES,
+  maxDeposit: MAX_DEPOSIT,
+  formatDateTime: formatUtcDateTime
+}
+
+export function useWallet() {
+  return walletConfig
 }
 
 export function usePositions() {
@@ -82,7 +109,9 @@ export function useMoneyFormat() {
       formatMoney: (value: number) =>
         formatDecimal(value, MONEY_DECIMALS, locale),
       formatSignedMoney: (value: number) =>
-        formatSignedDecimal(value, MONEY_DECIMALS, locale)
+        formatSignedDecimal(value, MONEY_DECIMALS, locale),
+      formatCompactMoney: (value: number) => formatCompact(value, locale),
+      parseDecimal: parseDecimalInput
     }),
     [locale]
   )
