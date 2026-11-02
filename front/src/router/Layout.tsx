@@ -1,11 +1,13 @@
 import { Suspense, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
 import { LiquidationNotices, Navbar, SessionNotice } from '@/components'
-import { useSessionStatus } from '@/modules/services'
+import { useDocumentTitle, useSessionStatus } from '@/modules/services'
 import { init } from '@/setup'
 
 function RootLayout() {
   const status = useSessionStatus()
+
+  useDocumentTitle(status === 'active')
 
   useEffect(() => {
     void init()

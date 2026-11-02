@@ -121,6 +121,10 @@ export interface IMarketService {
   isLive(): boolean
   getMarketTime(): number
   subscribeMarketEvents(listener: MarketEventListener): () => void
+  subscribeLastPrice(
+    symbol: SymbolId,
+    listener: (price: number) => void
+  ): () => void
   getRecentTrades(symbol: SymbolId): Trade[]
   getCandleStatus(symbol: SymbolId, timeframe: Timeframe): CandleStatus
   subscribeCandles(

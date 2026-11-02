@@ -4,6 +4,15 @@ export default class ChangelogRepository implements IChangelogRepository {
   public getEntries(): ChangelogEntry[] {
     return [
       {
+        version: '0.3.1',
+        items: [
+          {
+            type: 'changed',
+            text: 'The browser tab shows the current page, or the symbol and live price on a trading page.'
+          }
+        ]
+      },
+      {
         version: '0.3.0',
         items: [
           {

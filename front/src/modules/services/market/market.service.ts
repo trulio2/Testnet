@@ -58,6 +58,11 @@ export default class MarketService implements IMarketService {
   private pendingBooks: Partial<Record<SymbolId, OrderBook>> = {}
   private pendingTickers: Partial<Record<SymbolId, Ticker>> = {}
   private latestBooks: Partial<Record<SymbolId, OrderBook>> = {}
+  private latestPrices: Partial<Record<SymbolId, number>> = {}
+  private priceListeners = new Set<{
+    symbol: SymbolId
+    onPrice: (price: number) => void
+  }>()
   private clockOffset = 0
   private eventListeners = new Set<MarketEventListener>()
   private subscriptions = new Map<string, CandleSubscription>()
@@ -131,6 +136,24 @@ export default class MarketService implements IMarketService {
   // trades and candles on machines whose clock has drifted.
   public getMarketTime(): number {
     return Date.now() + this.clockOffset
+  }
+
+  // Current to the last message, for anything that must keep updating while the
+  // tab is hidden and the store has stopped.
+  public subscribeLastPrice(
+    symbol: SymbolId,
+    onPrice: (price: number) => void
+  ): () => void {
+    const latest = this.latestPrices[symbol]
+    const entry = { symbol, onPrice }
+
+    if (latest !== undefined) onPrice(latest)
+
+    this.priceListeners.add(entry)
+
+    return () => {
+      this.priceListeners.delete(entry)
+    }
   }
 
   public subscribeMarketEvents(listener: MarketEventListener): () => void {
@@ -268,6 +291,7 @@ export default class MarketService implements IMarketService {
       onTrade: (symbol, trade) => {
         this.markMessageReceived()
         this.clockOffset = trade.time - Date.now()
+        this.updateLatestPrice(symbol, trade.price)
         this.handleTrade(symbol, trade)
         this.eventListeners.forEach((listener) =>
           listener.onTrade(symbol, trade)
@@ -347,11 +371,24 @@ export default class MarketService implements IMarketService {
         RECENT_TRADES_LIMIT
       )
 
+      const newest = trades.at(-1)
+
+      if (newest && this.latestPrices[symbol] === undefined) {
+        this.updateLatestPrice(symbol, newest.price)
+      }
+
       this.queueTrades(symbol, trades)
     } catch (error) {
       // The stream keeps filling the list, so a failed seed is not fatal.
       console.error(error)
     }
+  }
+
+  private updateLatestPrice(symbol: SymbolId, price: number): void {
+    this.latestPrices[symbol] = price
+    this.priceListeners.forEach((listener) => {
+      if (listener.symbol === symbol) listener.onPrice(price)
+    })
   }
 
   private handleTrade(symbol: SymbolId, trade: Trade): void {
