@@ -51,6 +51,7 @@ export const en: ITranslations = {
       orderValue: 'Order value',
       margin: 'Margin',
       buyingPower: 'Buying power',
+      fees: 'Maker / taker fee',
       leverage: 'Leverage',
       leverageRejected:
         'Not enough available {quote} for {leverage}x. Add funds or reduce your position.',
@@ -78,6 +79,18 @@ export const en: ITranslations = {
     },
     walletBalance: {
       usedFor: 'Used for {symbols}'
+    },
+    feeSettings: {
+      title: 'Trading fees',
+      note: 'Match the fees of another platform. Taker applies to market orders, limit orders that cross the book and liquidations; maker applies to limit orders that rest first. A negative maker fee is a rebate. Changes apply to future fills, and resetting the account keeps them.',
+      maker: 'Maker fee (%)',
+      taker: 'Taker fee (%)',
+      save: 'Save',
+      defaults: 'Defaults',
+      saved: '{symbol} fees saved.',
+      restored: '{symbol} fees restored to the defaults.',
+      invalid:
+        'Maker fee must be between {minMaker}% and {max}%, and taker fee between 0% and {max}%.'
     },
     depositForm: {
       title: 'Add funds',

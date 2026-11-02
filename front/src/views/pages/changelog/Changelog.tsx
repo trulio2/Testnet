@@ -18,9 +18,6 @@ function Changelog() {
           <li key={entry.version} className="changelog-entry">
             <header className="changelog-header">
               <span className="changelog-version">v{entry.version}</span>
-              <time className="changelog-date" dateTime={entry.date}>
-                {entry.date}
-              </time>
             </header>
 
             <ul className="changelog-items">

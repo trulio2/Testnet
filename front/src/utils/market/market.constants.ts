@@ -5,6 +5,8 @@ export const MINUTE_CANDLES_PAGE_SIZE = 1000
 export const CURRENCIES: Currency[] = ['USD', 'BRL']
 export const MAX_DEPOSIT = 1_000_000
 export const LEVERAGE_OPTIONS = [1, 2, 3, 5, 10, 25, 50]
+export const MIN_MAKER_FEE_RATE = -0.01
+export const MAX_FEE_RATE = 0.05
 
 export const SYMBOLS: Record<SymbolId, SymbolConfig> = {
   BTCUSD: {

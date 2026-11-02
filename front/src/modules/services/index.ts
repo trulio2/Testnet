@@ -18,6 +18,7 @@ import { SessionService, useSessionStatus } from './session'
 import {
   TradingService,
   useAccountSummary,
+  useFeeRates,
   useFills,
   useLedger,
   useLeverage,
@@ -46,6 +47,7 @@ export {
   useActiveSymbol,
   useCandles,
   useConnectionStatus,
+  useFeeRates,
   useFills,
   useLedger,
   useLeverage,

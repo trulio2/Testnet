@@ -227,6 +227,37 @@ h2.wallet-panel-title {
   color: var(--dash-red);
 }
 
+/* Fees */
+
+.fee-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.fee-settings-note {
+  color: var(--dash-muted);
+  font-size: 12px;
+}
+
+.fee-form {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 160px) minmax(0, 160px) auto auto;
+  align-items: end;
+  justify-content: start;
+  gap: 8px 12px;
+}
+
+.fee-form-symbol {
+  align-self: center;
+  font-weight: 600;
+}
+
+.fee-form .wallet-action {
+  padding: 7px 12px;
+}
+
 /* History */
 
 .funds-history-header {
@@ -285,5 +316,14 @@ h2.wallet-panel-title {
 @media (max-width: 860px) {
   .wallet-top {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fee-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+
+  .fee-form-symbol {
+    grid-column: 1 / -1;
   }
 }

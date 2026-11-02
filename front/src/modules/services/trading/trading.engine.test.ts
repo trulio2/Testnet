@@ -7,11 +7,13 @@ import type {
   SymbolId,
   TradeSide,
   TradingAccount,
-  TradingAccountV3
+  TradingAccountV3,
+  TradingAccountV4
 } from '@/types'
 import {
   addDeposit,
   cancelOpenOrder,
+  changeFeeRates,
   changeLeverage,
   createAccount,
   getAccountSummary,
@@ -25,6 +27,7 @@ import {
   migrateAccountFromV1,
   migrateAccountFromV2,
   migrateAccountFromV3,
+  migrateAccountFromV4,
   replayCandles,
   submitOrder,
   TAKER_FEE_RATE
@@ -930,6 +933,220 @@ describe('migrateAccountFromV3', () => {
 
     expect(migrated.leverage).toEqual({ BTCUSD: 1, USDBRL: 1 })
     expect(migrated.balances).toEqual(v3.balances)
+  })
+})
+
+describe('migrateAccountFromV4', () => {
+  it('starts every symbol on the default rates and keeps the rest', () => {
+    const v4: Partial<TradingAccount> = createAccount()
+
+    delete v4.feeRates
+
+    const migrated = migrateAccountFromV4(v4 as TradingAccountV4)
+
+    expect(migrated.feeRates.BTCUSD).toEqual({
+      maker: MAKER_FEE_RATE,
+      taker: TAKER_FEE_RATE
+    })
+    expect(migrated.feeRates.USDBRL).toEqual({
+      maker: MAKER_FEE_RATE,
+      taker: TAKER_FEE_RATE
+    })
+    expect(migrated.balances).toEqual(v4.balances)
+  })
+})
+
+describe('fee rates', () => {
+  const withRates = (
+    maker: number,
+    taker: number,
+    account: TradingAccount = createAccount(),
+    symbol: SymbolId = 'BTCUSD'
+  ) => {
+    const result = changeFeeRates(account, symbol, { maker, taker })
+
+    if (!result.ok) throw new Error('rejected')
+
+    return result.account
+  }
+
+  const restingBuy = (account: TradingAccount) =>
+    place(account, {
+      symbol: 'BTCUSD',
+      side: 'buy',
+      type: 'limit',
+      qty: 1,
+      price: 95
+    }).account
+
+  const touch = (account: TradingAccount) =>
+    matchRestingOrders(account, 'BTCUSD', { low: 95, high: 95 }, NOW)
+
+  it('charges market orders the custom taker rate', () => {
+    const account = fillAt(withRates(0.001, 0.002), 'buy', 1, 100)
+
+    expect(account.fills[0].fee).toBeCloseTo(0.2)
+    expect(account.balances.USD).toBeCloseTo(INITIAL_BALANCES.USD - 0.2)
+  })
+
+  it('charges a limit that crosses the book the custom taker rate', () => {
+    const { fill } = place(withRates(0.001, 0.002), {
+      symbol: 'BTCUSD',
+      side: 'buy',
+      type: 'limit',
+      qty: 1,
+      price: 110
+    })
+
+    expect(fill?.fee).toBeCloseTo(101 * 0.002)
+  })
+
+  it('charges a resting limit the custom maker rate', () => {
+    const account = touch(restingBuy(withRates(0.001, 0.002)))
+
+    expect(account.fills[0].fee).toBeCloseTo(95 * 0.001)
+  })
+
+  it('uses the rates in force at the fill, not when the order was placed', () => {
+    const resting = restingBuy(createAccount())
+    const account = touch(withRates(0.003, 0.004, resting))
+
+    expect(account.fills[0].fee).toBeCloseTo(95 * 0.003)
+  })
+
+  it('leaves past fills as they were', () => {
+    const filled = fillAt(createAccount(), 'buy', 1, 100)
+    const before = filled.fills[0].fee
+    const account = withRates(0.003, 0.004, filled)
+
+    expect(account.fills[0].fee).toBe(before)
+    expect(account.balances).toEqual(filled.balances)
+  })
+
+  it('is set per symbol', () => {
+    const custom = withRates(0.001, 0.002)
+    const account = fillAt(custom, 'buy', 1000, 5, 'USDBRL')
+
+    expect(account.fills[0].fee).toBeCloseTo(5000 * TAKER_FEE_RATE)
+  })
+
+  it('allows zero fees', () => {
+    const account = fillAt(withRates(0, 0), 'buy', 1, 100)
+
+    expect(account.fills[0].fee).toBe(0)
+    expect(account.balances.USD).toBe(INITIAL_BALANCES.USD)
+  })
+
+  it('credits a negative maker rate as a rebate', () => {
+    const account = touch(restingBuy(withRates(-0.00025, 0.00075)))
+
+    expect(account.fills[0].fee).toBeCloseTo(95 * -0.00025)
+    expect(account.balances.USD).toBeCloseTo(
+      INITIAL_BALANCES.USD + 95 * 0.00025
+    )
+    expect(account.ledger[0].amount).toBeCloseTo(95 * 0.00025)
+  })
+
+  it('does not count a rebate towards margin', () => {
+    const start = withRates(-0.01, 0)
+    const result = submitOrder(start, {
+      request: {
+        symbol: 'BTCUSD',
+        side: 'buy',
+        type: 'limit',
+        qty: 1001,
+        price: 100
+      },
+      book: bookAround(101, 102),
+      marks: {},
+      time: NOW
+    })
+
+    expect(result).toEqual({ ok: false, reason: 'insufficientMargin' })
+  })
+
+  it('includes a higher taker rate in the margin check', () => {
+    const start = withRates(0, 0.05)
+    const result = submitOrder(start, {
+      request: { symbol: 'BTCUSD', side: 'buy', type: 'market', qty: 980 },
+      book: bookAround(100, 100, 10_000),
+      marks: {},
+      time: NOW
+    })
+
+    expect(result).toEqual({ ok: false, reason: 'insufficientMargin' })
+  })
+
+  it('charges liquidations the custom taker rate', () => {
+    const start = {
+      ...withRates(0.001, 0.002),
+      balances: { USD: 50, BRL: INITIAL_BALANCES.BRL },
+      positions: {
+        BTCUSD: {
+          symbol: 'BTCUSD' as const,
+          qty: 1,
+          avgEntry: 100,
+          updatedAt: 0
+        }
+      }
+    }
+    const account = liquidateIfBreached(start, 'BTCUSD', 50, {}, NOW)
+
+    expect(account.fills[0].fee).toBeCloseTo(50 * 0.002)
+  })
+
+  it('keeps the balance equal to the ledger with custom rates', () => {
+    let account = withRates(-0.0001, 0.001)
+
+    account = fillAt(account, 'buy', 1, 100)
+    account = touch(
+      place(account, {
+        symbol: 'BTCUSD',
+        side: 'buy',
+        type: 'limit',
+        qty: 1,
+        price: 95
+      }).account
+    )
+
+    const total = account.ledger
+      .filter((entry) => entry.currency === 'USD')
+      .reduce((sum, entry) => sum + entry.amount, 0)
+
+    expect(total).toBeCloseTo(account.balances.USD)
+  })
+
+  describe('changeFeeRates', () => {
+    it('rounds away float noise', () => {
+      const account = withRates(0.07 / 100, 0.1 / 100)
+
+      expect(account.feeRates.BTCUSD).toEqual({ maker: 0.0007, taker: 0.001 })
+    })
+
+    it('accepts the limits', () => {
+      expect(withRates(-0.01, 0.05).feeRates.BTCUSD).toEqual({
+        maker: -0.01,
+        taker: 0.05
+      })
+      expect(withRates(0.05, 0).feeRates.BTCUSD).toEqual({
+        maker: 0.05,
+        taker: 0
+      })
+    })
+
+    it.each([
+      [-0.011, 0.001],
+      [0.051, 0.001],
+      [0.001, -0.001],
+      [0.001, 0.051],
+      [NaN, 0.001],
+      [0.001, NaN],
+      [Infinity, 0.001]
+    ])('rejects maker %s and taker %s', (maker, taker) => {
+      expect(
+        changeFeeRates(createAccount(), 'BTCUSD', { maker, taker })
+      ).toEqual({ ok: false, reason: 'invalidFeeRates' })
+    })
   })
 })
 

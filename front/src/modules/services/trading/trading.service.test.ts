@@ -76,6 +76,7 @@ function setup() {
   service.start()
 
   return {
+    service,
     getMinuteCandlesSince,
     open: () => listeners.forEach((listener) => listener.onOpen()),
     sendTrade: (value: Trade) =>
@@ -492,5 +493,58 @@ describe('liquidation', () => {
     sendTrade(trade(30 * MINUTE))
 
     expect(tradingStore.getState().lastProcessedAt).toBe(30 * MINUTE)
+  })
+})
+
+describe('fee rates', () => {
+  beforeEach(() => {
+    seed([])
+  })
+
+  const rates = () => tradingStore.getState().account.feeRates.BTCUSD
+
+  it('saves valid rates and refuses invalid ones', () => {
+    const { service } = setup()
+
+    expect(
+      service.setFeeRates('BTCUSD', { maker: 0.001, taker: 0.002 })
+    ).toEqual({ ok: true })
+    expect(rates()).toEqual({ maker: 0.001, taker: 0.002 })
+
+    expect(service.setFeeRates('BTCUSD', { maker: NaN, taker: 0.002 })).toEqual(
+      {
+        ok: false,
+        reason: 'invalidFeeRates'
+      }
+    )
+    expect(rates()).toEqual({ maker: 0.001, taker: 0.002 })
+  })
+
+  it('restores the defaults for one symbol', () => {
+    const { service } = setup()
+    const defaults = createAccount().feeRates.BTCUSD
+
+    service.setFeeRates('BTCUSD', { maker: 0.001, taker: 0.002 })
+    service.setFeeRates('USDBRL', { maker: 0.003, taker: 0.004 })
+    service.resetFeeRates('BTCUSD')
+
+    expect(rates()).toEqual(defaults)
+    expect(tradingStore.getState().account.feeRates.USDBRL).toEqual({
+      maker: 0.003,
+      taker: 0.004
+    })
+  })
+
+  it('keeps custom rates through an account reset', () => {
+    const { service } = setup()
+
+    service.setFeeRates('BTCUSD', { maker: 0.001, taker: 0.002 })
+    service.depositFunds('USD', 500)
+    service.resetAccount()
+
+    const { account } = tradingStore.getState()
+
+    expect(account.balances.USD).toBe(createAccount().balances.USD)
+    expect(account.feeRates.BTCUSD).toEqual({ maker: 0.001, taker: 0.002 })
   })
 })

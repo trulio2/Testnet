@@ -1,4 +1,9 @@
-import { DepositForm, FundsHistory, WalletBalance } from '@/components'
+import {
+  DepositForm,
+  FeeSettings,
+  FundsHistory,
+  WalletBalance
+} from '@/components'
 import { useLocale, useTradingActions, useWallet } from '@/modules/services'
 import './Wallet.css'
 
@@ -28,6 +33,7 @@ function Wallet() {
         ))}
         <DepositForm />
       </div>
+      <FeeSettings />
       <FundsHistory />
     </div>
   )

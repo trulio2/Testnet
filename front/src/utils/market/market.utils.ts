@@ -156,3 +156,11 @@ export function parseDecimalInput(value: string): number {
 
   return normalized === '' ? NaN : Number(normalized)
 }
+
+export function formatFeePercent(rate: number, locale: Locale): string {
+  return getFormatter(locale, { maximumFractionDigits: 4 }).format(rate * 100)
+}
+
+export function toFeePercentInput(rate: number): string {
+  return String(roundToDecimals(rate * 100, 4))
+}

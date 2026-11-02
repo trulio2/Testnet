@@ -3,6 +3,8 @@ import type {
   Candle,
   Currency,
   DepositResult,
+  FeeRates,
+  FeeRatesResult,
   Fill,
   LedgerEntry,
   LeverageResult,
@@ -20,12 +22,15 @@ import type {
   TradingAccount,
   TradingAccountV1,
   TradingAccountV2,
-  TradingAccountV3
+  TradingAccountV3,
+  TradingAccountV4
 } from '@/types'
 import {
   CURRENCIES,
   LEVERAGE_OPTIONS,
   MAX_DEPOSIT,
+  MAX_FEE_RATE,
+  MIN_MAKER_FEE_RATE,
   roundToDecimals,
   SYMBOLS
 } from '@/utils'
@@ -36,6 +41,11 @@ export const INITIAL_BALANCES: Record<Currency, number> = {
 }
 export const MAKER_FEE_RATE = 0.0002
 export const TAKER_FEE_RATE = 0.0005
+export const DEFAULT_FEE_RATES: FeeRates = {
+  maker: MAKER_FEE_RATE,
+  taker: TAKER_FEE_RATE
+}
+const FEE_RATE_DECIMALS = 6
 export const MAINTENANCE_MARGIN_RATE = 0.005
 const MAX_FILLS = 200
 const MAX_LEDGER_ENTRIES = 500
@@ -58,6 +68,10 @@ function createInitialLedger(
   }))
 }
 
+function createDefaultFeeRates(): Record<SymbolId, FeeRates> {
+  return { BTCUSD: { ...DEFAULT_FEE_RATES }, USDBRL: { ...DEFAULT_FEE_RATES } }
+}
+
 export function createAccount(time = 0): TradingAccount {
   return {
     balances: { ...INITIAL_BALANCES },
@@ -67,6 +81,7 @@ export function createAccount(time = 0): TradingAccount {
     ledger: createInitialLedger(INITIAL_BALANCES, 1, time),
     liquidationNotices: [],
     leverage: { ...DEFAULT_LEVERAGE },
+    feeRates: createDefaultFeeRates(),
     nextId: CURRENCIES.length + 1
   }
 }
@@ -114,8 +129,14 @@ export function migrateAccountFromV2(
 
 export function migrateAccountFromV3(
   account: TradingAccountV3
-): TradingAccount {
+): TradingAccountV4 {
   return { ...account, leverage: { ...DEFAULT_LEVERAGE } }
+}
+
+export function migrateAccountFromV4(
+  account: TradingAccountV4
+): TradingAccount {
+  return { ...account, feeRates: createDefaultFeeRates() }
 }
 
 function appendLedgerEntry(
@@ -305,7 +326,7 @@ function applyFill(
     nextEntry = currentEntry
   }
 
-  const feeRate = liquidity === 'maker' ? MAKER_FEE_RATE : TAKER_FEE_RATE
+  const feeRate = account.feeRates[symbol][liquidity]
   const fee = qty * price * feeRate
   const positions = { ...account.positions }
 
@@ -422,12 +443,12 @@ export function submitOrder(
     ...account,
     openOrders: [...account.openOrders, order]
   })
-  const feeRate = isTaker ? TAKER_FEE_RATE : MAKER_FEE_RATE
+  const feeRate = account.feeRates[symbol][isTaker ? 'taker' : 'maker']
   const fee = qty * referencePrice * feeRate
 
   // Orders that don't add exposure stay allowed so an underwater position can
   // always be closed.
-  if (marginAfter > marginBefore && marginAfter + fee > equity) {
+  if (marginAfter > marginBefore && marginAfter + Math.max(fee, 0) > equity) {
     return { ok: false, reason: 'insufficientMargin' }
   }
 
@@ -726,6 +747,31 @@ export function changeLeverage(
   }
 
   return { ok: true, account: next }
+}
+
+// A negative maker rate is a rebate, as some exchanges pay. New rates apply to
+// every later fill, including orders already resting.
+export function changeFeeRates(
+  account: TradingAccount,
+  symbol: SymbolId,
+  { maker, taker }: FeeRates
+): FeeRatesResult {
+  const rates = {
+    maker: roundToDecimals(maker, FEE_RATE_DECIMALS),
+    taker: roundToDecimals(taker, FEE_RATE_DECIMALS)
+  }
+
+  if (
+    !(rates.maker >= MIN_MAKER_FEE_RATE && rates.maker <= MAX_FEE_RATE) ||
+    !(rates.taker >= 0 && rates.taker <= MAX_FEE_RATE)
+  ) {
+    return { ok: false, reason: 'invalidFeeRates' }
+  }
+
+  return {
+    ok: true,
+    account: { ...account, feeRates: { ...account.feeRates, [symbol]: rates } }
+  }
 }
 
 export function cancelOpenOrder(

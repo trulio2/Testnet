@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import IoC from '@/modules/ioc'
 import {
   type Currency,
+  type FeeRates,
   type IMarketService,
   type ITradingService,
   type OrderDraft,
@@ -13,11 +14,15 @@ import {
   CURRENCIES,
   formatCompact,
   formatDecimal,
+  formatFeePercent,
   formatSignedDecimal,
   formatUtcDateTime,
   LEVERAGE_OPTIONS,
   MAX_DEPOSIT,
-  parseDecimalInput
+  MAX_FEE_RATE,
+  MIN_MAKER_FEE_RATE,
+  parseDecimalInput,
+  toFeePercentInput
 } from '@/utils'
 import useLocale from '../locale/useLocale'
 
@@ -36,6 +41,9 @@ const tradingActions = {
   dismissLiquidationNotices: () => tradingService.dismissLiquidationNotices(),
   setLeverage: (symbol: SymbolId, leverage: number) =>
     tradingService.setLeverage(symbol, leverage),
+  setFeeRates: (symbol: SymbolId, rates: FeeRates) =>
+    tradingService.setFeeRates(symbol, rates),
+  resetFeeRates: (symbol: SymbolId) => tradingService.resetFeeRates(symbol),
   depositFunds: (currency: Currency, amount: number) =>
     tradingService.depositFunds(currency, amount),
   updateOrderDraft: (symbol: SymbolId, changes: Partial<OrderDraft>) =>
@@ -59,6 +67,10 @@ export function useLedger() {
 const walletConfig = {
   currencies: CURRENCIES,
   maxDeposit: MAX_DEPOSIT,
+  feeLimits: {
+    minMakerPercent: MIN_MAKER_FEE_RATE * 100,
+    maxPercent: MAX_FEE_RATE * 100
+  },
   formatDateTime: formatUtcDateTime
 }
 
@@ -78,6 +90,18 @@ export function useLeverage(symbol: SymbolId) {
   return {
     leverage: tradingService.getLeverage(symbol),
     options: LEVERAGE_OPTIONS
+  }
+}
+
+export function useFeeRates(symbol: SymbolId) {
+  const { locale } = useLocale()
+  const { maker, taker } = tradingService.getFeeRates(symbol)
+
+  return {
+    makerInput: toFeePercentInput(maker),
+    takerInput: toFeePercentInput(taker),
+    makerLabel: formatFeePercent(maker, locale),
+    takerLabel: formatFeePercent(taker, locale)
   }
 }
 

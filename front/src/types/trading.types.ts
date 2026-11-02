@@ -78,10 +78,25 @@ export interface TradingAccount {
   ledger: LedgerEntry[]
   liquidationNotices: LiquidationNotice[]
   leverage: Record<SymbolId, number>
+  feeRates: Record<SymbolId, FeeRates>
   nextId: number
 }
 
-export type TradingAccountV3 = Omit<TradingAccount, 'leverage'>
+export type TradingAccountV4 = Omit<TradingAccount, 'feeRates'>
+
+export type TradingAccountV3 = Omit<TradingAccountV4, 'leverage'>
+
+export interface FeeRates {
+  maker: number
+  taker: number
+}
+
+export type FeeRatesResult =
+  | { ok: true; account: TradingAccount }
+  | { ok: false; reason: 'invalidFeeRates' }
+
+export type SetFeeRatesResult =
+  { ok: true } | { ok: false; reason: 'invalidFeeRates' }
 
 export type LeverageRejection = 'invalidLeverage' | 'insufficientMargin'
 
@@ -164,6 +179,9 @@ export interface ITradingService {
   getLiquidationNotices(): LiquidationNotice[]
   getLeverage(symbol: SymbolId): number
   setLeverage(symbol: SymbolId, leverage: number): SetLeverageResult
+  getFeeRates(symbol: SymbolId): FeeRates
+  setFeeRates(symbol: SymbolId, rates: FeeRates): SetFeeRatesResult
+  resetFeeRates(symbol: SymbolId): void
   dismissLiquidationNotices(): void
   getOpenOrders(): Order[]
   getFills(): Fill[]

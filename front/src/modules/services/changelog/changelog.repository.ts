@@ -4,8 +4,16 @@ export default class ChangelogRepository implements IChangelogRepository {
   public getEntries(): ChangelogEntry[] {
     return [
       {
+        version: '0.3.0',
+        items: [
+          {
+            type: 'added',
+            text: 'Configurable maker and taker fees per symbol on the wallet page, including negative maker fees as rebates.'
+          }
+        ]
+      },
+      {
         version: '0.2.1',
-        date: '2026-11-02',
         items: [
           {
             type: 'changed',
@@ -15,7 +23,6 @@ export default class ChangelogRepository implements IChangelogRepository {
       },
       {
         version: '0.2.0',
-        date: '2026-11-02',
         items: [
           {
             type: 'added',
@@ -33,7 +40,6 @@ export default class ChangelogRepository implements IChangelogRepository {
       },
       {
         version: '0.1.0',
-        date: '2026-11-02',
         items: [
           {
             type: 'added',
@@ -59,7 +65,6 @@ export default class ChangelogRepository implements IChangelogRepository {
       },
       {
         version: '0.0.1',
-        date: '2026-10-30',
         items: []
       }
     ]

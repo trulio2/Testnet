@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   useAccountSummary,
   useConnectionStatus,
+  useFeeRates,
   useLeverage,
   useLocale,
   useMarkPrice,
@@ -27,6 +28,7 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
   const markPrice = useMarkPrice(symbol)
   const status = useConnectionStatus()
   const { leverage, options: leverageOptions } = useLeverage(symbol)
+  const { makerLabel, takerLabel } = useFeeRates(symbol)
   const { availableMargin } = useAccountSummary(config.quote)
   const { placeOrder, setLeverage, updateOrderDraft } = useTradingActions()
   const [feedback, setFeedback] = useState<Feedback | null>(null)
@@ -185,6 +187,10 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
           <dt>{t('components.orderForm.buyingPower')}</dt>
           <dd>
             {formatMoney(buyingPower)} {config.quote}
+          </dd>
+          <dt>{t('components.orderForm.fees')}</dt>
+          <dd>
+            {makerLabel}% / {takerLabel}%
           </dd>
         </dl>
 

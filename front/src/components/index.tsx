@@ -1,5 +1,6 @@
 import AccountSummary from './accountSummary/AccountSummary'
 import DepositForm from './depositForm/DepositForm'
+import FeeSettings from './feeSettings/FeeSettings'
 import FundsHistory from './fundsHistory/FundsHistory'
 import LiquidationNotices from './liquidationNotices/LiquidationNotices'
 import Navbar from './navbar/Navbar'
@@ -15,6 +16,7 @@ import WalletBalance from './walletBalance/WalletBalance'
 export {
   AccountSummary,
   DepositForm,
+  FeeSettings,
   FundsHistory,
   LiquidationNotices,
   Navbar,

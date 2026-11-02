@@ -2,6 +2,7 @@ import type {
   AccountSummary,
   Currency,
   DepositFundsResult,
+  FeeRates,
   Fill,
   IMarketService,
   ITradingService,
@@ -15,6 +16,7 @@ import type {
   Position,
   PositionView,
   PriceCrossing,
+  SetFeeRatesResult,
   SetLeverageResult,
   SymbolId
 } from '@/types'
@@ -22,8 +24,10 @@ import { getMidPrice, MINUTE_CANDLES_PAGE_SIZE } from '@/utils'
 import {
   addDeposit,
   cancelOpenOrder,
+  changeFeeRates,
   changeLeverage,
   createAccount,
+  DEFAULT_FEE_RATES,
   dismissNotices,
   getAccountSummary,
   getLiquidationPrice,
@@ -149,6 +153,25 @@ export default class TradingService implements ITradingService {
     return { ok: true }
   }
 
+  public getFeeRates(symbol: SymbolId): FeeRates {
+    return tradingStore((state) => state.account.feeRates[symbol])
+  }
+
+  public setFeeRates(symbol: SymbolId, rates: FeeRates): SetFeeRatesResult {
+    const { account, setAccount } = tradingStore.getState()
+    const result = changeFeeRates(account, symbol, rates)
+
+    if (!result.ok) return result
+
+    setAccount(result.account)
+
+    return { ok: true }
+  }
+
+  public resetFeeRates(symbol: SymbolId): void {
+    this.setFeeRates(symbol, DEFAULT_FEE_RATES)
+  }
+
   public getLiquidationNotices(): LiquidationNotice[] {
     return tradingStore((state) => state.account.liquidationNotices)
   }
@@ -219,10 +242,14 @@ export default class TradingService implements ITradingService {
     })
   }
 
+  // Fee rates are a preference rather than account state, so a reset keeps them.
   public resetAccount(): void {
-    tradingStore
-      .getState()
-      .setAccount(createAccount(this.marketService.getMarketTime()))
+    const { account, setAccount } = tradingStore.getState()
+
+    setAccount({
+      ...createAccount(this.marketService.getMarketTime()),
+      feeRates: account.feeRates
+    })
   }
 
   // Replays the time the stream wasn't running: from the last saved point after

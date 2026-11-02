@@ -52,6 +52,7 @@ export const pt: ITranslations = {
       orderValue: 'Valor da ordem',
       margin: 'Margem',
       buyingPower: 'Poder de compra',
+      fees: 'Taxa maker / taker',
       leverage: 'Alavancagem',
       leverageRejected:
         'Saldo disponível em {quote} insuficiente para {leverage}x. Adicione fundos ou reduza a posição.',
@@ -80,6 +81,18 @@ export const pt: ITranslations = {
     },
     walletBalance: {
       usedFor: 'Usado em {symbols}'
+    },
+    feeSettings: {
+      title: 'Taxas de negociação',
+      note: 'Use as taxas de outra plataforma. A taxa taker vale para ordens a mercado, ordens limite que cruzam o livro e liquidações; a taxa maker vale para ordens limite que ficam no livro antes de executar. Uma taxa maker negativa é um rebate. As mudanças valem para execuções futuras, e redefinir a conta as mantém.',
+      maker: 'Taxa maker (%)',
+      taker: 'Taxa taker (%)',
+      save: 'Salvar',
+      defaults: 'Padrão',
+      saved: 'Taxas de {symbol} salvas.',
+      restored: 'Taxas de {symbol} restauradas para o padrão.',
+      invalid:
+        'A taxa maker deve estar entre {minMaker}% e {max}%, e a taxa taker entre 0% e {max}%.'
     },
     depositForm: {
       title: 'Adicionar fundos',

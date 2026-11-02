@@ -50,6 +50,7 @@ interface IComponents {
     orderValue: string
     margin: string
     buyingPower: string
+    fees: string
     leverage: string
     leverageRejected: string
     buy: string
@@ -75,6 +76,17 @@ interface IComponents {
   }
   walletBalance: {
     usedFor: string
+  }
+  feeSettings: {
+    title: string
+    note: string
+    maker: string
+    taker: string
+    save: string
+    defaults: string
+    saved: string
+    restored: string
+    invalid: string
   }
   depositForm: {
     title: string
