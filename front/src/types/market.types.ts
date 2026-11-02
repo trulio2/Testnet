@@ -110,6 +110,8 @@ export interface IMarketService {
   getSymbol(symbol: SymbolId): SymbolConfig
   resolveSymbol(value: string): SymbolId | null
   getTimeframes(): Timeframe[]
+  getSelectedTimeframe(): Timeframe
+  setSelectedTimeframe(timeframe: Timeframe): void
   getConnectionStatus(): ConnectionStatus
   getTicker(symbol: SymbolId): Ticker | undefined
   getLastPrice(symbol: SymbolId): number | undefined
@@ -129,6 +131,11 @@ export interface IMarketService {
   getMinuteCandlesSince(symbol: SymbolId, startTime: number): Promise<Candle[]>
   loadOlderCandles(symbol: SymbolId, timeframe: Timeframe): Promise<void>
   reloadCandles(symbol: SymbolId, timeframe: Timeframe): Promise<void>
+}
+
+export interface ChartPreferencesState {
+  timeframe: Timeframe
+  setTimeframe(timeframe: Timeframe): void
 }
 
 export interface MarketState {

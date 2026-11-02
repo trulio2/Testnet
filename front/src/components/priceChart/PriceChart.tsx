@@ -15,10 +15,11 @@ import {
   useLiquidationPrice,
   useLocale,
   usePosition,
+  useSelectedTimeframe,
   useSymbol,
   useSymbolOrders
 } from '@/modules/services'
-import type { Candle, SymbolId, Timeframe } from '@/types'
+import type { Candle, SymbolId } from '@/types'
 
 const DEFAULT_BAR_SPACING = 8
 const RIGHT_OFFSET_CANDLES = 6
@@ -70,7 +71,7 @@ function setChartData(view: ChartView, data: Candle[]) {
 export default function PriceChart({ symbol }: { symbol: SymbolId }) {
   const { t } = useLocale()
   const { config, formatPrice, formatQty } = useSymbol(symbol)
-  const [timeframe, setTimeframe] = useState<Timeframe>('1m')
+  const { timeframe, setTimeframe } = useSelectedTimeframe()
   const [hovered, setHovered] = useState<HoveredCandle | null>(null)
   const { status, timeframes, subscribe, loadOlder, reload } = useCandles(
     symbol,

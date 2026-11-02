@@ -9,6 +9,7 @@ import {
   useLastPrice,
   useOrderBook,
   useRecentTrades,
+  useSelectedTimeframe,
   useSymbol,
   useSymbols,
   useTicker
@@ -59,6 +60,7 @@ export {
   usePosition,
   usePositions,
   useRecentTrades,
+  useSelectedTimeframe,
   useSessionStatus,
   useSymbol,
   useSymbolOrders,

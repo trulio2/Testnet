@@ -25,6 +25,7 @@ import {
   SYMBOLS,
   TIMEFRAME_SECONDS
 } from '@/utils'
+import { chartPreferencesStore } from './chartPreferences.store'
 import { marketStore } from './market.store'
 
 const RECENT_TRADES_LIMIT = 50
@@ -86,6 +87,14 @@ export default class MarketService implements IMarketService {
 
   public getTimeframes(): Timeframe[] {
     return Object.keys(TIMEFRAME_SECONDS) as Timeframe[]
+  }
+
+  public getSelectedTimeframe(): Timeframe {
+    return chartPreferencesStore((state) => state.timeframe)
+  }
+
+  public setSelectedTimeframe(timeframe: Timeframe): void {
+    chartPreferencesStore.getState().setTimeframe(timeframe)
   }
 
   public getConnectionStatus(): ConnectionStatus {

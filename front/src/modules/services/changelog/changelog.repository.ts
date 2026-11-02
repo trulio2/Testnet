@@ -4,6 +4,16 @@ export default class ChangelogRepository implements IChangelogRepository {
   public getEntries(): ChangelogEntry[] {
     return [
       {
+        version: '0.2.1',
+        date: '2026-11-02',
+        items: [
+          {
+            type: 'changed',
+            text: 'The chart remembers your selected timeframe after a reload.'
+          }
+        ]
+      },
+      {
         version: '0.2.0',
         date: '2026-11-02',
         items: [

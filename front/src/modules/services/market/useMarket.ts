@@ -73,6 +73,14 @@ export function useRecentTrades(symbol: SymbolId) {
   return marketService.getRecentTrades(symbol)
 }
 
+export function useSelectedTimeframe() {
+  return {
+    timeframe: marketService.getSelectedTimeframe(),
+    setTimeframe: (timeframe: Timeframe) =>
+      marketService.setSelectedTimeframe(timeframe)
+  }
+}
+
 export function useCandles(symbol: SymbolId, timeframe: Timeframe) {
   const status = marketService.getCandleStatus(symbol, timeframe)
 
