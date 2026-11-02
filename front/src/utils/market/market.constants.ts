@@ -6,20 +6,26 @@ export const SYMBOLS: Record<SymbolId, SymbolConfig> = {
   BTCUSD: {
     id: 'BTCUSD',
     label: 'BTC/USD',
+    base: 'BTC',
+    quote: 'USD',
     feedSymbol: 'BTCUSDT',
     feedLabel: 'BTC/USDT',
     tickSize: 0.01,
     priceDecimals: 2,
-    qtyDecimals: 5
+    qtyDecimals: 5,
+    minNotional: 5
   },
   USDBRL: {
     id: 'USDBRL',
     label: 'USD/BRL',
+    base: 'USD',
+    quote: 'BRL',
     feedSymbol: 'USDTBRL',
     feedLabel: 'USDT/BRL',
     tickSize: 0.0001,
     priceDecimals: 4,
-    qtyDecimals: 1
+    qtyDecimals: 1,
+    minNotional: 10
   }
 }
 

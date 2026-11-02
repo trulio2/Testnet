@@ -1,4 +1,4 @@
-import type { Candle, Locale, Timeframe, Trade } from '@/types'
+import type { Candle, Locale, OrderBook, Timeframe, Trade } from '@/types'
 import { TIMEFRAME_SECONDS } from './market.constants'
 
 const NUMBER_LOCALES: Record<Locale, string> = {
@@ -121,4 +121,27 @@ export function mergeLatestCandles(
     ...current.filter((candle) => candle.time < firstLatest.time),
     ...latest
   ]
+}
+
+export function roundToDecimals(value: number, decimals: number): number {
+  return Number(value.toFixed(decimals))
+}
+
+export function getMidPrice(book: OrderBook | undefined): number | undefined {
+  const bid = book?.bids[0]?.price
+  const ask = book?.asks[0]?.price
+
+  return bid === undefined || ask === undefined ? undefined : (bid + ask) / 2
+}
+
+export function formatSignedDecimal(
+  value: number,
+  decimals: number,
+  locale: Locale
+): string {
+  return getFormatter(locale, {
+    signDisplay: 'exceptZero',
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  }).format(value)
 }

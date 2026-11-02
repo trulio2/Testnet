@@ -11,11 +11,14 @@ export type CandleStatus = 'loading' | 'ready' | 'error'
 export interface SymbolConfig {
   id: SymbolId
   label: string
+  base: string
+  quote: 'USD' | 'BRL'
   feedSymbol: string
   feedLabel: string
   tickSize: number
   priceDecimals: number
   qtyDecimals: number
+  minNotional: number
 }
 
 export interface Candle {
@@ -78,6 +81,11 @@ export interface MarketStreamHandlers {
   onTicker(symbol: SymbolId, ticker: Ticker): void
 }
 
+export interface MarketEventListener {
+  onTrade(symbol: SymbolId, trade: Trade): void
+  onBook(symbol: SymbolId, book: OrderBook): void
+}
+
 export interface MarketStream {
   close(): void
 }
@@ -101,7 +109,12 @@ export interface IMarketService {
   getConnectionStatus(): ConnectionStatus
   getTicker(symbol: SymbolId): Ticker | undefined
   getLastPrice(symbol: SymbolId): number | undefined
+  getMarkPrice(symbol: SymbolId): number | undefined
   getOrderBook(symbol: SymbolId): OrderBook | undefined
+  getLatestBook(symbol: SymbolId): OrderBook | undefined
+  isLive(): boolean
+  getMarketTime(): number
+  subscribeMarketEvents(listener: MarketEventListener): () => void
   getRecentTrades(symbol: SymbolId): Trade[]
   getCandleStatus(symbol: SymbolId, timeframe: Timeframe): CandleStatus
   subscribeCandles(

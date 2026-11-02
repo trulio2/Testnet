@@ -2,7 +2,8 @@ import {
   useLastPrice,
   useLocale,
   useOrderBook,
-  useSymbol
+  useSymbol,
+  useTradingActions
 } from '@/modules/services'
 import type { OrderBookLevel, SymbolId } from '@/types'
 
@@ -24,7 +25,8 @@ function toDepthRows(levels: OrderBookLevel[]): DepthRow[] {
 
 export default function OrderBook({ symbol }: { symbol: SymbolId }) {
   const { t } = useLocale()
-  const { formatPrice, formatQty } = useSymbol(symbol)
+  const { config, formatPrice, formatQty } = useSymbol(symbol)
+  const { updateOrderDraft } = useTradingActions()
   const book = useOrderBook(symbol)
   const lastPrice = useLastPrice(symbol)
 
@@ -34,7 +36,17 @@ export default function OrderBook({ symbol }: { symbol: SymbolId }) {
   const spread = asks[0] && bids[0] ? asks[0].price - bids[0].price : undefined
 
   const renderRow = (row: DepthRow, side: 'ask' | 'bid') => (
-    <div key={row.price} className={`book-row book-row-${side}`}>
+    <button
+      key={row.price}
+      type="button"
+      className={`book-row book-row-${side}`}
+      onClick={() =>
+        updateOrderDraft(symbol, {
+          type: 'limit',
+          price: row.price.toFixed(config.priceDecimals)
+        })
+      }
+    >
       <span
         className="book-depth"
         style={{ width: `${(row.total / maxTotal) * 100}%` }}
@@ -42,7 +54,7 @@ export default function OrderBook({ symbol }: { symbol: SymbolId }) {
       <span className="book-price">{formatPrice(row.price)}</span>
       <span>{formatQty(row.qty)}</span>
       <span>{formatQty(row.total)}</span>
-    </div>
+    </button>
   )
 
   return (

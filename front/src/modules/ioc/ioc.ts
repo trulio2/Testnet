@@ -5,9 +5,11 @@ import ChangelogService from '@/modules/services/changelog/changelog.service'
 import LocaleService from '@/modules/services/locale/locale.service'
 import MarketRepository from '@/modules/services/market/market.repository'
 import MarketService from '@/modules/services/market/market.service'
+import TradingService from '@/modules/services/trading/trading.service'
 import {
   type IChangelogRepository,
   type IMarketRepository,
+  type IMarketService,
   REPOSITORIES,
   SERVICES
 } from '@/types'
@@ -43,6 +45,12 @@ class IoC {
         break
       case REPOSITORIES.MARKET:
         newInstance = new MarketRepository()
+        break
+
+      case SERVICES.TRADING:
+        newInstance = new TradingService(
+          this.getOrCreateInstance<IMarketService>(SERVICES.MARKET)
+        )
         break
       default:
         break

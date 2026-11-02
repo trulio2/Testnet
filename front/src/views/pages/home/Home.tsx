@@ -1,10 +1,16 @@
 import { Navigate } from 'react-router-dom'
-import { OrderBook, PriceChart, RecentTrades } from '@/components'
-import { useActiveSymbol, useLocale } from '@/modules/services'
+import {
+  AccountSummary,
+  OrderBook,
+  OrderForm,
+  OrdersPanel,
+  PriceChart,
+  RecentTrades
+} from '@/components'
+import { useActiveSymbol } from '@/modules/services'
 import './Home.css'
 
 function Home() {
-  const { t } = useLocale()
   const symbol = useActiveSymbol()
 
   if (!symbol) return <Navigate to="/" replace />
@@ -13,12 +19,13 @@ function Home() {
     <div className="trade-page">
       <div className="trade-grid">
         <aside className="trade-panel order-panel">
-          <h2 className="trade-panel-title">
-            {t('pages.home.orderPanelTitle')}
-          </h2>
-          <p className="trade-empty">{t('pages.home.orderPanelNote')}</p>
+          <OrderForm key={symbol} symbol={symbol} />
+          <AccountSummary />
         </aside>
-        <PriceChart symbol={symbol} />
+        <div className="trade-center">
+          <PriceChart symbol={symbol} />
+          <OrdersPanel />
+        </div>
         <div className="market-panels">
           <OrderBook symbol={symbol} />
           <RecentTrades symbol={symbol} />

@@ -5,6 +5,7 @@ import type {
   ConnectionStatus,
   IMarketRepository,
   IMarketService,
+  MarketEventListener,
   MarketStream,
   OrderBook,
   SymbolConfig,
@@ -15,6 +16,7 @@ import type {
 } from '@/types'
 import {
   applyTradeToCandles,
+  getMidPrice,
   getSeriesKey,
   mergeLatestCandles,
   mergeTrades,
@@ -52,6 +54,9 @@ export default class MarketService implements IMarketService {
   private pendingTrades: Partial<Record<SymbolId, Trade[]>> = {}
   private pendingBooks: Partial<Record<SymbolId, OrderBook>> = {}
   private pendingTickers: Partial<Record<SymbolId, Ticker>> = {}
+  private latestBooks: Partial<Record<SymbolId, OrderBook>> = {}
+  private clockOffset = 0
+  private eventListeners = new Set<MarketEventListener>()
   private subscriptions = new Map<string, CandleSubscription>()
 
   constructor(private marketRepository: IMarketRepository) {}
@@ -93,8 +98,36 @@ export default class MarketService implements IMarketService {
     return marketStore((state) => state.trades[symbol]?.[0]?.price)
   }
 
+  public getMarkPrice(symbol: SymbolId): number | undefined {
+    return marketStore((state) => getMidPrice(state.books[symbol]))
+  }
+
   public getOrderBook(symbol: SymbolId): OrderBook | undefined {
     return marketStore((state) => state.books[symbol])
+  }
+
+  // Current to the last message, unlike the store, which only updates on
+  // animation frames and so stops while the tab is hidden.
+  public getLatestBook(symbol: SymbolId): OrderBook | undefined {
+    return this.latestBooks[symbol]
+  }
+
+  public isLive(): boolean {
+    return marketStore.getState().status === 'live'
+  }
+
+  // Local time corrected to the exchange's clock, so times stay comparable with
+  // trades and candles on machines whose clock has drifted.
+  public getMarketTime(): number {
+    return Date.now() + this.clockOffset
+  }
+
+  public subscribeMarketEvents(listener: MarketEventListener): () => void {
+    this.eventListeners.add(listener)
+
+    return () => {
+      this.eventListeners.delete(listener)
+    }
   }
 
   public getRecentTrades(symbol: SymbolId): Trade[] {
@@ -213,12 +246,18 @@ export default class MarketService implements IMarketService {
       onClose: () => this.handleDisconnect(),
       onTrade: (symbol, trade) => {
         this.markMessageReceived()
+        this.clockOffset = trade.time - Date.now()
         this.handleTrade(symbol, trade)
+        this.eventListeners.forEach((listener) =>
+          listener.onTrade(symbol, trade)
+        )
       },
       onBook: (symbol, book) => {
         this.markMessageReceived()
+        this.latestBooks[symbol] = book
         this.pendingBooks[symbol] = book
         this.scheduleFlush()
+        this.eventListeners.forEach((listener) => listener.onBook(symbol, book))
       },
       onTicker: (symbol, ticker) => {
         this.markMessageReceived()

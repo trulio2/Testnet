@@ -6,10 +6,17 @@ import {
   type HistogramData,
   type IChartApi,
   type ISeriesApi,
+  LineStyle,
   type LogicalRange,
   type UTCTimestamp
 } from 'lightweight-charts'
-import { useCandles, useLocale, useSymbol } from '@/modules/services'
+import {
+  useCandles,
+  useLocale,
+  usePosition,
+  useSymbol,
+  useSymbolOrders
+} from '@/modules/services'
 import type { Candle, SymbolId, Timeframe } from '@/types'
 
 const DEFAULT_BAR_SPACING = 8
@@ -23,6 +30,7 @@ interface ChartView {
   volume: ISeriesApi<'Histogram'>
   upColor: string
   downColor: string
+  entryColor: string
 }
 
 interface HoveredCandle {
@@ -67,6 +75,8 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
     symbol,
     timeframe
   )
+  const orders = useSymbolOrders(symbol)
+  const position = usePosition(symbol)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<ChartView | null>(null)
 
@@ -137,7 +147,14 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
       })
     })
 
-    viewRef.current = { chart, candles, volume, upColor, downColor }
+    viewRef.current = {
+      chart,
+      candles,
+      volume,
+      upColor,
+      downColor,
+      entryColor: readToken('--dash-cyan')
+    }
 
     return () => {
       viewRef.current = null
@@ -205,6 +222,43 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
       unsubscribe()
     }
   }, [subscribe, loadOlder])
+
+  useEffect(() => {
+    const view = viewRef.current
+
+    if (!view) return
+
+    const lines = orders.map((order) =>
+      view.candles.createPriceLine({
+        price: order.price,
+        color: order.side === 'buy' ? view.upColor : view.downColor,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `${t(`components.chart.${order.side}`)} ${formatQty(order.qty)}`
+      })
+    )
+
+    if (position) {
+      lines.push(
+        view.candles.createPriceLine({
+          price: position.avgEntry,
+          color: view.entryColor,
+          lineWidth: 1,
+          lineStyle: LineStyle.Solid,
+          axisLabelVisible: true,
+          title: `${t('components.chart.entry')} ${formatQty(position.qty)}`
+        })
+      )
+    }
+
+    return () => {
+      // The chart effect's cleanup runs first on unmount and clears viewRef.
+      if (viewRef.current !== view) return
+
+      lines.forEach((line) => view.candles.removePriceLine(line))
+    }
+  }, [orders, position, formatQty, t])
 
   return (
     <section className="trade-panel chart-panel" aria-label={config.label}>

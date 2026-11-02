@@ -1,10 +1,7 @@
 export type Locale = 'en' | 'pt'
 
 interface IPages {
-  home: {
-    orderPanelTitle: string
-    orderPanelNote: string
-  }
+  home: {}
   changelog: {}
 }
 
@@ -30,6 +27,67 @@ interface IComponents {
     timeframe: string
     loading: string
     feedNote: string
+    buy: string
+    sell: string
+    entry: string
+  }
+  orderForm: {
+    title: string
+    type: string
+    market: string
+    limit: string
+    size: string
+    price: string
+    marketNote: string
+    orderValue: string
+    buy: string
+    sell: string
+    placed: string
+    filled: string
+    errors: {
+      invalidQty: string
+      invalidPrice: string
+      belowMinNotional: string
+      insufficientMargin: string
+      marketUnavailable: string
+    }
+  }
+  account: {
+    title: string
+    wallet: string
+    unrealizedPnl: string
+    equity: string
+    usedMargin: string
+    available: string
+    reset: string
+    resetConfirm: string
+  }
+  ordersPanel: {
+    positions: string
+    orders: string
+    fills: string
+    positionsEmpty: string
+    ordersEmpty: string
+    fillsEmpty: string
+    symbol: string
+    side: string
+    size: string
+    entry: string
+    mark: string
+    price: string
+    time: string
+    liquidity: string
+    fee: string
+    unrealizedPnl: string
+    realizedPnl: string
+    long: string
+    short: string
+    buy: string
+    sell: string
+    maker: string
+    taker: string
+    close: string
+    cancel: string
   }
   orderBook: {
     title: string
