@@ -38,6 +38,11 @@ function PositionRow({ position }: { position: PositionView }) {
           ? '—'
           : formatPrice(position.markPrice)}
       </td>
+      <td>
+        {position.liquidationPrice === undefined
+          ? '—'
+          : formatPrice(position.liquidationPrice)}
+      </td>
       <td className={getPnlClass(position.unrealizedPnl)}>
         {formatSignedMoney(position.unrealizedPnl)} {config.quote}
       </td>
@@ -95,7 +100,11 @@ function FillRow({ fill }: { fill: Fill }) {
       </td>
       <td>{formatQty(fill.qty)}</td>
       <td>{formatPrice(fill.price)}</td>
-      <td>{t(`components.ordersPanel.${fill.liquidity}`)}</td>
+      {fill.isLiquidation ? (
+        <td className="pnl-down">{t('components.ordersPanel.liquidation')}</td>
+      ) : (
+        <td>{t(`components.ordersPanel.${fill.liquidity}`)}</td>
+      )}
       <td>
         {formatMoney(fill.fee)} {config.quote}
       </td>
@@ -151,6 +160,7 @@ export default function OrdersPanel() {
                     <th>{label('size')}</th>
                     <th>{label('entry')}</th>
                     <th>{label('mark')}</th>
+                    <th>{label('liquidationPrice')}</th>
                     <th>{label('unrealizedPnl')}</th>
                     <th aria-label={label('close')} />
                   </tr>

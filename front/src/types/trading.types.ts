@@ -39,15 +39,26 @@ export interface Fill {
   fee: number
   realizedPnl: number
   time: number
+  isLiquidation?: boolean
 }
 
 export interface Position {
   symbol: SymbolId
   qty: number
   avgEntry: number
+  updatedAt: number
 }
 
-export type LedgerEntryType = 'initial' | 'deposit' | 'trade'
+export interface LiquidationNotice {
+  id: number
+  symbol: SymbolId
+  qty: number
+  price: number
+  time: number
+}
+
+export type LedgerEntryType =
+  'initial' | 'deposit' | 'trade' | 'liquidation' | 'lossCovered'
 
 export interface LedgerEntry {
   id: number
@@ -65,14 +76,38 @@ export interface TradingAccount {
   openOrders: Order[]
   fills: Fill[]
   ledger: LedgerEntry[]
+  liquidationNotices: LiquidationNotice[]
+  leverage: Record<SymbolId, number>
   nextId: number
 }
 
+export type TradingAccountV3 = Omit<TradingAccount, 'leverage'>
+
+export type LeverageRejection = 'invalidLeverage' | 'insufficientMargin'
+
+export type LeverageResult =
+  | { ok: true; account: TradingAccount }
+  | { ok: false; reason: LeverageRejection }
+
+export type SetLeverageResult =
+  { ok: true } | { ok: false; reason: LeverageRejection }
+
+type PositionsV2 = Partial<Record<SymbolId, Omit<Position, 'updatedAt'>>>
+
 export interface TradingAccountV1 {
   walletBalance: number
-  positions: Partial<Record<SymbolId, Position>>
+  positions: PositionsV2
   openOrders: Order[]
   fills: Fill[]
+  nextId: number
+}
+
+export interface TradingAccountV2 {
+  balances: Record<Currency, number>
+  positions: PositionsV2
+  openOrders: Order[]
+  fills: Fill[]
+  ledger: LedgerEntry[]
   nextId: number
 }
 
@@ -109,6 +144,7 @@ export interface AccountSummary {
 export interface PositionView extends Position {
   markPrice?: number
   unrealizedPnl: number
+  liquidationPrice?: number
 }
 
 export interface OrderDraft {
@@ -124,6 +160,11 @@ export interface ITradingService {
   depositFunds(currency: Currency, amount: number): DepositFundsResult
   getPositions(): PositionView[]
   getPosition(symbol: SymbolId): Position | undefined
+  getLiquidationPrice(symbol: SymbolId): number | undefined
+  getLiquidationNotices(): LiquidationNotice[]
+  getLeverage(symbol: SymbolId): number
+  setLeverage(symbol: SymbolId, leverage: number): SetLeverageResult
+  dismissLiquidationNotices(): void
   getOpenOrders(): Order[]
   getFills(): Fill[]
   getOrderDraft(symbol: SymbolId): OrderDraft

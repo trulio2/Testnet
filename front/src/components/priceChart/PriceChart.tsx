@@ -12,6 +12,7 @@ import {
 } from 'lightweight-charts'
 import {
   useCandles,
+  useLiquidationPrice,
   useLocale,
   usePosition,
   useSymbol,
@@ -77,6 +78,7 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
   )
   const orders = useSymbolOrders(symbol)
   const position = usePosition(symbol)
+  const liquidationPrice = useLiquidationPrice(symbol)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<ChartView | null>(null)
 
@@ -253,13 +255,26 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
       )
     }
 
+    if (liquidationPrice !== undefined) {
+      lines.push(
+        view.candles.createPriceLine({
+          price: liquidationPrice,
+          color: view.downColor,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: t('components.chart.liquidation')
+        })
+      )
+    }
+
     return () => {
       // The chart effect's cleanup runs first on unmount and clears viewRef.
       if (viewRef.current !== view) return
 
       lines.forEach((line) => view.candles.removePriceLine(line))
     }
-  }, [orders, position, formatQty, t])
+  }, [orders, position, liquidationPrice, formatQty, t])
 
   return (
     <section className="trade-panel chart-panel" aria-label={config.label}>

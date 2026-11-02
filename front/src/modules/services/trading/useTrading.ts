@@ -15,6 +15,7 @@ import {
   formatDecimal,
   formatSignedDecimal,
   formatUtcDateTime,
+  LEVERAGE_OPTIONS,
   MAX_DEPOSIT,
   parseDecimalInput
 } from '@/utils'
@@ -32,6 +33,9 @@ const tradingActions = {
   cancelOrder: (orderId: number) => tradingService.cancelOrder(orderId),
   closePosition: (symbol: SymbolId) => tradingService.closePosition(symbol),
   resetAccount: () => tradingService.resetAccount(),
+  dismissLiquidationNotices: () => tradingService.dismissLiquidationNotices(),
+  setLeverage: (symbol: SymbolId, leverage: number) =>
+    tradingService.setLeverage(symbol, leverage),
   depositFunds: (currency: Currency, amount: number) =>
     tradingService.depositFunds(currency, amount),
   updateOrderDraft: (symbol: SymbolId, changes: Partial<OrderDraft>) =>
@@ -68,6 +72,21 @@ export function usePositions() {
 
 export function usePosition(symbol: SymbolId) {
   return tradingService.getPosition(symbol)
+}
+
+export function useLeverage(symbol: SymbolId) {
+  return {
+    leverage: tradingService.getLeverage(symbol),
+    options: LEVERAGE_OPTIONS
+  }
+}
+
+export function useLiquidationPrice(symbol: SymbolId) {
+  return tradingService.getLiquidationPrice(symbol)
+}
+
+export function useLiquidationNotices() {
+  return tradingService.getLiquidationNotices()
 }
 
 export function useOpenOrders() {

@@ -37,7 +37,8 @@ export const en: ITranslations = {
       feedNote: 'Prices from {feed} on Binance',
       buy: 'Buy',
       sell: 'Sell',
-      entry: 'Entry'
+      entry: 'Entry',
+      liquidation: 'Liq.'
     },
     orderForm: {
       title: 'Order',
@@ -48,6 +49,11 @@ export const en: ITranslations = {
       price: 'Price ({unit})',
       marketNote: 'Fills now at the best available price.',
       orderValue: 'Order value',
+      margin: 'Margin',
+      buyingPower: 'Buying power',
+      leverage: 'Leverage',
+      leverageRejected:
+        'Not enough available {quote} for {leverage}x. Add funds or reduce your position.',
       buy: 'Buy / Long',
       sell: 'Sell / Short',
       placed: 'Limit order placed.',
@@ -57,7 +63,7 @@ export const en: ITranslations = {
         invalidPrice: 'Enter a valid price.',
         belowMinNotional: 'Order value must be at least {min} {quote}.',
         insufficientMargin:
-          'Not enough available {quote}. Add funds in your wallet.',
+          'Not enough available {quote}. Add funds in your wallet or raise your leverage.',
         marketUnavailable: 'Market data is unavailable right now.'
       }
     },
@@ -94,7 +100,14 @@ export const en: ITranslations = {
       initial: 'Starting balance',
       deposit: 'Deposit',
       trade: 'Trade',
+      liquidation: 'Liquidation',
+      lossCovered: 'Loss covered',
       empty: 'No entries yet.'
+    },
+    liquidation: {
+      message:
+        'Your {side} {symbol} position of {qty} was liquidated at {price} {quote}. Your open {quote} orders were cancelled.',
+      dismiss: 'Dismiss'
     },
     session: {
       title: 'Testnet is open in another tab',
@@ -113,6 +126,7 @@ export const en: ITranslations = {
       size: 'Size',
       entry: 'Entry',
       mark: 'Mark',
+      liquidationPrice: 'Liq. price',
       price: 'Price',
       time: 'Time (UTC)',
       liquidity: 'Liquidity',
@@ -125,6 +139,7 @@ export const en: ITranslations = {
       sell: 'Sell',
       maker: 'Maker',
       taker: 'Taker',
+      liquidation: 'Liquidation',
       close: 'Close',
       cancel: 'Cancel'
     },

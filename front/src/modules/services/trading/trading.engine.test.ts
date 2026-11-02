@@ -6,18 +6,25 @@ import type {
   OrderRequest,
   SymbolId,
   TradeSide,
-  TradingAccount
+  TradingAccount,
+  TradingAccountV3
 } from '@/types'
 import {
   addDeposit,
   cancelOpenOrder,
+  changeLeverage,
   createAccount,
   getAccountSummary,
   getBookFillPrice,
+  getLiquidationPrice,
   INITIAL_BALANCES,
+  liquidateIfBreached,
+  MAINTENANCE_MARGIN_RATE,
   MAKER_FEE_RATE,
   matchRestingOrders,
   migrateAccountFromV1,
+  migrateAccountFromV2,
+  migrateAccountFromV3,
   replayCandles,
   submitOrder,
   TAKER_FEE_RATE
@@ -101,7 +108,8 @@ describe('market orders', () => {
     expect(account.positions.BTCUSD).toEqual({
       symbol: 'BTCUSD',
       qty: 1,
-      avgEntry: 101
+      avgEntry: 101,
+      updatedAt: NOW
     })
     expect(account.balances.USD).toBeCloseTo(
       INITIAL_BALANCES.USD - 101 * TAKER_FEE_RATE
@@ -883,6 +891,611 @@ describe('order validation', () => {
     })
 
     expect(account.positions.BTCUSD?.qty).toBe(0.99)
+  })
+})
+
+describe('migrateAccountFromV2', () => {
+  it('stamps positions with the upgrade time and adds empty notices', () => {
+    const { ledger, nextId } = createAccount()
+    const migrated = migrateAccountFromV2(
+      {
+        balances: { USD: 1, BRL: 2 },
+        positions: { BTCUSD: { symbol: 'BTCUSD', qty: 1, avgEntry: 100 } },
+        openOrders: [],
+        fills: [],
+        ledger,
+        nextId
+      },
+      NOW
+    )
+
+    expect(migrated.positions.BTCUSD).toEqual({
+      symbol: 'BTCUSD',
+      qty: 1,
+      avgEntry: 100,
+      updatedAt: NOW
+    })
+    expect(migrated.liquidationNotices).toEqual([])
+    expect(migrated.balances).toEqual({ USD: 1, BRL: 2 })
+  })
+})
+
+describe('migrateAccountFromV3', () => {
+  it('starts every symbol at 1x and keeps the rest', () => {
+    const v3: Partial<TradingAccount> = createAccount()
+
+    delete v3.leverage
+
+    const migrated = migrateAccountFromV3(v3 as TradingAccountV3)
+
+    expect(migrated.leverage).toEqual({ BTCUSD: 1, USDBRL: 1 })
+    expect(migrated.balances).toEqual(v3.balances)
+  })
+})
+
+describe('leverage', () => {
+  const atLeverage = (
+    leverage: number,
+    account: TradingAccount = createAccount(),
+    symbol: SymbolId = 'BTCUSD'
+  ) => {
+    const result = changeLeverage(account, symbol, leverage, {})
+
+    if (!result.ok) throw new Error(`rejected: ${result.reason}`)
+
+    return result.account
+  }
+
+  const buyAt100 = (account: TradingAccount, qty: number) =>
+    submitOrder(account, {
+      request: { symbol: 'BTCUSD', side: 'buy', type: 'market', qty },
+      book: bookAround(100, 100, 1_000_000),
+      marks: { BTCUSD: 100 },
+      time: NOW
+    })
+
+  it('starts at 1x', () => {
+    expect(createAccount().leverage).toEqual({ BTCUSD: 1, USDBRL: 1 })
+  })
+
+  it('allows a position larger than the balance', () => {
+    expect(buyAt100(atLeverage(10), 9000).ok).toBe(true)
+    expect(buyAt100(createAccount(), 9000).ok).toBe(false)
+  })
+
+  it('rejects a position beyond what the leverage allows', () => {
+    expect(buyAt100(atLeverage(10), 11_000)).toEqual({
+      ok: false,
+      reason: 'insufficientMargin'
+    })
+  })
+
+  it('includes the fee at the limit', () => {
+    expect(buyAt100(atLeverage(10), INITIAL_BALANCES.USD / 10).ok).toBe(false)
+  })
+
+  it('divides used margin by the leverage', () => {
+    const account = fillAt(atLeverage(10), 'buy', 9000, 100)
+
+    expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(90_000)
+  })
+
+  it('divides resting order margin by the leverage', () => {
+    const { account } = place(atLeverage(5), {
+      symbol: 'BTCUSD',
+      side: 'buy',
+      type: 'limit',
+      qty: 10,
+      price: 95
+    })
+
+    expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(190)
+  })
+
+  it('is set per symbol', () => {
+    const account = fillAt(atLeverage(10), 'buy', 1000, 5, 'USDBRL')
+
+    expect(account.leverage).toEqual({ BTCUSD: 10, USDBRL: 1 })
+    expect(getAccountSummary(account, 'BRL', {}).usedMargin).toBe(5000)
+  })
+
+  it('does not change pnl, fees or the balance', () => {
+    const plain = fillAt(
+      fillAt(createAccount(), 'buy', 10, 100),
+      'sell',
+      10,
+      110
+    )
+    const leveraged = fillAt(
+      fillAt(atLeverage(25), 'buy', 10, 100),
+      'sell',
+      10,
+      110
+    )
+
+    expect(leveraged.balances).toEqual(plain.balances)
+    expect(leveraged.fills[0].fee).toBe(plain.fills[0].fee)
+    expect(leveraged.fills[0].realizedPnl).toBe(plain.fills[0].realizedPnl)
+  })
+
+  it('resets to 1x with the account', () => {
+    expect(atLeverage(50).leverage.BTCUSD).toBe(50)
+    expect(createAccount().leverage.BTCUSD).toBe(1)
+  })
+
+  describe('changeLeverage', () => {
+    it('frees margin when raised', () => {
+      const opened = fillAt(createAccount(), 'buy', 500, 100)
+      const account = atLeverage(5, opened)
+
+      expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(10_000)
+    })
+
+    it('can be lowered when the margin still fits', () => {
+      const opened = fillAt(atLeverage(10), 'buy', 500, 100)
+
+      expect(atLeverage(1, opened).leverage.BTCUSD).toBe(1)
+    })
+
+    it('cannot be lowered past what the equity covers', () => {
+      const opened = fillAt(atLeverage(10), 'buy', 9000, 100)
+
+      expect(changeLeverage(opened, 'BTCUSD', 2, { BTCUSD: 100 })).toEqual({
+        ok: false,
+        reason: 'insufficientMargin'
+      })
+    })
+
+    it('counts unrealized losses when lowering', () => {
+      const opened = fillAt(atLeverage(10), 'buy', 900, 100)
+
+      expect(changeLeverage(opened, 'BTCUSD', 1, { BTCUSD: 100 }).ok).toBe(true)
+      expect(changeLeverage(opened, 'BTCUSD', 1, { BTCUSD: 10 }).ok).toBe(false)
+    })
+
+    it('counts resting orders when lowering', () => {
+      const { account } = place(atLeverage(10), {
+        symbol: 'BTCUSD',
+        side: 'buy',
+        type: 'limit',
+        qty: 9000,
+        price: 95
+      })
+
+      expect(changeLeverage(account, 'BTCUSD', 1, {}).ok).toBe(false)
+    })
+
+    it.each([0, -1, 4, 100, NaN])('rejects %s', (leverage) => {
+      expect(changeLeverage(createAccount(), 'BTCUSD', leverage, {})).toEqual({
+        ok: false,
+        reason: 'invalidLeverage'
+      })
+    })
+  })
+
+  describe('with liquidation', () => {
+    it('liquidates a full-size 10x long about 10% down', () => {
+      const account = fillAt(atLeverage(10), 'buy', 9900, 100)
+      const price = getLiquidationPrice(account, 'BTCUSD', {}) as number
+
+      expect(price).toBeGreaterThan(89)
+      expect(price).toBeLessThan(91)
+    })
+
+    it('liquidates a full-size 10x short about 10% up', () => {
+      const account = fillAt(atLeverage(10), 'sell', 9900, 100)
+      const price = getLiquidationPrice(account, 'BTCUSD', {}) as number
+
+      expect(price).toBeGreaterThan(109)
+      expect(price).toBeLessThan(111)
+    })
+
+    it('liquidates a full-size 50x long about 2% down', () => {
+      const account = fillAt(atLeverage(50), 'buy', 40_000, 100)
+      const price = getLiquidationPrice(account, 'BTCUSD', {}) as number
+
+      expect(price).toBeGreaterThan(97.5)
+      expect(price).toBeLessThan(99)
+    })
+
+    it('keeps a small position far away, because the whole balance backs it', () => {
+      const account = fillAt(atLeverage(50), 'sell', 10, 100)
+      const price = getLiquidationPrice(account, 'BTCUSD', {}) as number
+
+      expect(price).toBeGreaterThan(9000)
+    })
+
+    it('does not liquidate a new full-size position at its entry', () => {
+      for (const [leverage, qty] of [
+        [10, 9900],
+        [25, 22_000],
+        [50, 40_000]
+      ]) {
+        const account = fillAt(atLeverage(leverage), 'buy', qty, 100)
+
+        expect(liquidateIfBreached(account, 'BTCUSD', 100, {}, NOW)).toBe(
+          account
+        )
+      }
+    })
+
+    it('liquidates a leveraged position once the price gets there', () => {
+      const opened = fillAt(atLeverage(10), 'buy', 9900, 100)
+      const price = getLiquidationPrice(opened, 'BTCUSD', {}) as number
+      const account = liquidateIfBreached(opened, 'BTCUSD', price, {}, NOW)
+
+      expect(account.positions.BTCUSD).toBeUndefined()
+      expect(account.balances.USD).toBeGreaterThanOrEqual(0)
+    })
+
+    it('moves the liquidation price closer as size grows, not with the setting', () => {
+      const small = fillAt(atLeverage(10), 'buy', 1000, 100)
+      const sameSizeHigher = atLeverage(50, small)
+      const larger = fillAt(small, 'buy', 8000, 100)
+
+      expect(getLiquidationPrice(sameSizeHigher, 'BTCUSD', {})).toBe(
+        getLiquidationPrice(small, 'BTCUSD', {})
+      )
+      expect(getLiquidationPrice(larger, 'BTCUSD', {})).toBeGreaterThan(
+        getLiquidationPrice(small, 'BTCUSD', {}) as number
+      )
+    })
+  })
+})
+
+describe('liquidation', () => {
+  const RATE = MAINTENANCE_MARGIN_RATE
+  const TIME = 5_000
+
+  // A position larger than its balance, which the order flow can't create at 1x
+  // but which a large loss leaves behind in the same shape.
+  const withPosition = (qty: number, avgEntry: number, usd: number) => ({
+    ...createAccount(),
+    balances: { USD: usd, BRL: INITIAL_BALANCES.BRL },
+    positions: {
+      BTCUSD: { symbol: 'BTCUSD' as const, qty, avgEntry, updatedAt: 0 }
+    }
+  })
+
+  const candle = (time: number, open: number, low: number, high: number) => ({
+    time,
+    open,
+    low,
+    high,
+    close: open,
+    volume: 1
+  })
+
+  describe('getLiquidationPrice', () => {
+    it('is undefined without a position', () => {
+      expect(getLiquidationPrice(createAccount(), 'BTCUSD', {})).toBeUndefined()
+    })
+
+    it('puts a long where equity meets maintenance margin', () => {
+      const account = withPosition(1, 100, 20)
+      const price = getLiquidationPrice(account, 'BTCUSD', {}) as number
+      const equity = 20 + (price - 100)
+
+      expect(price).toBeCloseTo(80 / (1 - RATE))
+      expect(equity).toBeCloseTo(price * RATE)
+    })
+
+    it('puts a short where equity meets maintenance margin', () => {
+      const account = withPosition(-1, 100, 20)
+      const price = getLiquidationPrice(account, 'BTCUSD', {}) as number
+      const equity = 20 - (price - 100)
+
+      expect(price).toBeCloseTo(120 / (1 + RATE))
+      expect(equity).toBeCloseTo(price * RATE)
+    })
+
+    it('is undefined for a long the balance fully covers', () => {
+      const account = fillAt(createAccount(), 'buy', 1, 100)
+
+      expect(getLiquidationPrice(account, 'BTCUSD', {})).toBeUndefined()
+    })
+
+    it('is roughly double the entry for a short using the whole balance', () => {
+      const account = fillAt(createAccount(), 'sell', 900, 100)
+      const price = getLiquidationPrice(account, 'BTCUSD', {}) as number
+
+      expect(price).toBeGreaterThan(200)
+      expect(price).toBeLessThan(211)
+    })
+
+    it('moves when funds are added', () => {
+      const before = withPosition(-1, 100, 20)
+      const after = addDeposit(before, 'USD', 30, NOW)
+
+      if (!after.ok) throw new Error('rejected')
+
+      expect(getLiquidationPrice(after.account, 'BTCUSD', {})).toBeGreaterThan(
+        getLiquidationPrice(before, 'BTCUSD', {}) as number
+      )
+    })
+  })
+
+  describe('liquidateIfBreached', () => {
+    it('does nothing before the liquidation price', () => {
+      const account = withPosition(1, 100, 20)
+
+      expect(liquidateIfBreached(account, 'BTCUSD', 81, {}, TIME)).toBe(account)
+    })
+
+    it('does nothing without a position', () => {
+      const account = createAccount()
+
+      expect(liquidateIfBreached(account, 'BTCUSD', 1, {}, TIME)).toBe(account)
+    })
+
+    it('closes a long at the mark when breached', () => {
+      const account = liquidateIfBreached(
+        withPosition(1, 100, 20),
+        'BTCUSD',
+        80,
+        {},
+        TIME
+      )
+
+      expect(account.positions.BTCUSD).toBeUndefined()
+      expect(account.fills[0]).toMatchObject({
+        side: 'sell',
+        qty: 1,
+        price: 80,
+        liquidity: 'taker',
+        realizedPnl: -20,
+        isLiquidation: true,
+        time: TIME
+      })
+    })
+
+    it('closes a short at the mark when breached', () => {
+      const account = liquidateIfBreached(
+        withPosition(-1, 100, 20),
+        'BTCUSD',
+        120,
+        {},
+        TIME
+      )
+
+      expect(account.positions.BTCUSD).toBeUndefined()
+      expect(account.fills[0]).toMatchObject({ side: 'buy', price: 120 })
+    })
+
+    it('leaves what remains after the loss and the fee', () => {
+      const start = withPosition(1, 100, 50)
+      const price = getLiquidationPrice(start, 'BTCUSD', {}) as number
+      const account = liquidateIfBreached(start, 'BTCUSD', price, {}, TIME)
+      const rounded = account.fills[0].price
+
+      expect(account.balances.USD).toBeCloseTo(
+        50 + (rounded - 100) - rounded * TAKER_FEE_RATE
+      )
+      expect(account.balances.USD).toBeGreaterThan(0)
+    })
+
+    it('cancels orders in the same currency only', () => {
+      const start = {
+        ...withPosition(1, 100, 20),
+        openOrders: [
+          {
+            id: 90,
+            symbol: 'BTCUSD' as const,
+            side: 'buy' as const,
+            qty: 1,
+            price: 50,
+            createdAt: 0
+          },
+          {
+            id: 91,
+            symbol: 'USDBRL' as const,
+            side: 'buy' as const,
+            qty: 100,
+            price: 5,
+            createdAt: 0
+          }
+        ]
+      }
+      const account = liquidateIfBreached(start, 'BTCUSD', 80, {}, TIME)
+
+      expect(account.openOrders.map((order) => order.id)).toEqual([91])
+    })
+
+    it('leaves the other currency and its position alone', () => {
+      const usdbrl = {
+        symbol: 'USDBRL' as const,
+        qty: 100,
+        avgEntry: 5,
+        updatedAt: 0
+      }
+      const start = {
+        ...withPosition(1, 100, 20),
+        positions: { ...withPosition(1, 100, 20).positions, USDBRL: usdbrl }
+      }
+      const account = liquidateIfBreached(start, 'BTCUSD', 80, {}, TIME)
+
+      expect(account.positions.USDBRL).toEqual(usdbrl)
+      expect(account.balances.BRL).toBe(INITIAL_BALANCES.BRL)
+    })
+
+    it('records a liquidation ledger entry and a notice', () => {
+      const account = liquidateIfBreached(
+        withPosition(1, 100, 20),
+        'BTCUSD',
+        80.3,
+        {},
+        TIME
+      )
+
+      expect(account.ledger[0]).toMatchObject({
+        type: 'liquidation',
+        currency: 'USD',
+        symbol: 'BTCUSD',
+        time: TIME
+      })
+      expect(account.liquidationNotices).toEqual([
+        expect.objectContaining({
+          symbol: 'BTCUSD',
+          qty: 1,
+          price: 80.3,
+          time: TIME
+        })
+      ])
+    })
+
+    it('stops at zero after a gap and records the covered loss', () => {
+      const account = liquidateIfBreached(
+        withPosition(1, 100, 20),
+        'BTCUSD',
+        50,
+        {},
+        TIME
+      )
+
+      expect(account.balances.USD).toBe(0)
+      expect(account.ledger[0].type).toBe('lossCovered')
+      expect(account.ledger[0].amount).toBeCloseTo(30 + 50 * TAKER_FEE_RATE)
+      expect(account.ledger[0].balance).toBe(0)
+      expect(account.ledger[1].type).toBe('liquidation')
+      expect(account.ledger[1].balance).toBeCloseTo(-30 - 50 * TAKER_FEE_RATE)
+    })
+
+    it('rounds the close to the tick size', () => {
+      const account = liquidateIfBreached(
+        withPosition(1, 100, 20),
+        'BTCUSD',
+        80.123456,
+        {},
+        TIME
+      )
+
+      expect(account.fills[0].price).toBe(80.12)
+    })
+
+    it('uses unique ids', () => {
+      const account = liquidateIfBreached(
+        withPosition(1, 100, 20),
+        'BTCUSD',
+        50,
+        {},
+        TIME
+      )
+      const ids = [
+        ...account.ledger.map((entry) => entry.id),
+        account.fills[0].id,
+        account.fills[0].orderId
+      ]
+
+      expect(new Set(ids).size).toBe(ids.length)
+      expect(Math.max(...ids)).toBeLessThan(account.nextId)
+    })
+
+    it('can trade again after a deposit', () => {
+      const liquidated = liquidateIfBreached(
+        withPosition(1, 100, 20),
+        'BTCUSD',
+        50,
+        {},
+        TIME
+      )
+      const funded = addDeposit(liquidated, 'USD', 1000, TIME)
+
+      if (!funded.ok) throw new Error('rejected')
+
+      const account = fillAt(funded.account, 'buy', 1, 100)
+
+      expect(account.positions.BTCUSD?.qty).toBe(1)
+    })
+  })
+
+  describe('replayCandles', () => {
+    it('liquidates a long a later candle crossed, at the liquidation price', () => {
+      const start = withPosition(1, 100, 20)
+      const price = getLiquidationPrice(start, 'BTCUSD', {}) as number
+      const account = replayCandles(start, 'BTCUSD', [
+        candle(10, 90, 85, 95),
+        candle(11, 90, 70, 95)
+      ])
+
+      expect(account.positions.BTCUSD).toBeUndefined()
+      expect(account.fills[0].price).toBeCloseTo(price, 2)
+      expect(account.fills[0].time).toBe(11_000)
+    })
+
+    it('liquidates a short on the candle high', () => {
+      const start = withPosition(-1, 100, 20)
+      const price = getLiquidationPrice(start, 'BTCUSD', {}) as number
+      const account = replayCandles(start, 'BTCUSD', [
+        candle(10, 110, 105, 130)
+      ])
+
+      expect(account.fills[0].price).toBeCloseTo(price, 2)
+    })
+
+    it('uses the open when the market had already gone past', () => {
+      const account = replayCandles(withPosition(1, 100, 20), 'BTCUSD', [
+        candle(10, 60, 55, 65)
+      ])
+
+      expect(account.fills[0].price).toBe(60)
+    })
+
+    it('leaves a position the candles did not reach', () => {
+      const start = withPosition(1, 100, 20)
+
+      expect(replayCandles(start, 'BTCUSD', [candle(10, 90, 85, 95)])).toBe(
+        start
+      )
+    })
+
+    it('ignores a candle opened before the position last changed', () => {
+      const start = withPosition(1, 100, 20)
+
+      if (start.positions.BTCUSD) start.positions.BTCUSD.updatedAt = 10_000
+
+      expect(replayCandles(start, 'BTCUSD', [candle(10, 60, 55, 65)])).toBe(
+        start
+      )
+    })
+
+    it('stops after the liquidation', () => {
+      const account = replayCandles(withPosition(1, 100, 20), 'BTCUSD', [
+        candle(10, 60, 55, 65),
+        candle(11, 40, 35, 45)
+      ])
+
+      expect(account.fills).toHaveLength(1)
+    })
+
+    it('does not liquidate on the candle that opened or changed the position', () => {
+      const { account: resting } = place(createAccount(), {
+        symbol: 'BTCUSD',
+        side: 'buy',
+        type: 'limit',
+        qty: 1,
+        price: 95
+      })
+      const start = { ...resting, balances: { USD: 10, BRL: 0 } }
+      const account = replayCandles(start, 'BTCUSD', [candle(10, 95, 1, 95)])
+
+      expect(account.positions.BTCUSD?.qty).toBe(1)
+      expect(account.fills[0].isLiquidation).toBeUndefined()
+    })
+  })
+
+  it('keeps each balance equal to its ledger through a liquidation', () => {
+    const funded = addDeposit(createAccount(), 'USD', 1000, NOW)
+
+    if (!funded.ok) throw new Error('rejected')
+
+    const opened = fillAt(funded.account, 'sell', 1000, 100)
+    const account = liquidateIfBreached(opened, 'BTCUSD', 1000, {}, TIME)
+    const total = account.ledger
+      .filter((entry) => entry.currency === 'USD')
+      .reduce((sum, entry) => sum + entry.amount, 0)
+
+    expect(account.positions.BTCUSD).toBeUndefined()
+    expect(total).toBeCloseTo(account.balances.USD)
   })
 })
 

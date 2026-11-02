@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import {
+  useAccountSummary,
   useConnectionStatus,
+  useLeverage,
   useLocale,
   useMarkPrice,
   useMoneyFormat,
@@ -24,7 +26,9 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
   const draft = useOrderDraft(symbol)
   const markPrice = useMarkPrice(symbol)
   const status = useConnectionStatus()
-  const { placeOrder, updateOrderDraft } = useTradingActions()
+  const { leverage, options: leverageOptions } = useLeverage(symbol)
+  const { availableMargin } = useAccountSummary(config.quote)
+  const { placeOrder, setLeverage, updateOrderDraft } = useTradingActions()
   const [feedback, setFeedback] = useState<Feedback | null>(null)
 
   const isLimit = draft.type === 'limit'
@@ -32,6 +36,23 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
   const referencePrice = isLimit ? parseDecimal(draft.price) : markPrice
   const orderValue = referencePrice === undefined ? NaN : qty * referencePrice
   const isLive = status === 'live'
+  const buyingPower = Math.max(availableMargin, 0) * leverage
+
+  const selectLeverage = (option: number) => {
+    const result = setLeverage(symbol, option)
+
+    setFeedback(
+      result.ok
+        ? null
+        : {
+            isError: true,
+            text: t('components.orderForm.leverageRejected', {
+              quote: config.quote,
+              leverage: option
+            })
+          }
+    )
+  }
 
   const selectType = (type: OrderType) => {
     const price =
@@ -79,6 +100,25 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
     >
       <h2 className="trade-panel-title">{t('components.orderForm.title')}</h2>
       <div className="order-form-body">
+        <div className="order-leverage">
+          <span id="order-leverage-label">
+            {t('components.orderForm.leverage')}
+          </span>
+          <div role="group" aria-labelledby="order-leverage-label">
+            {leverageOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={option === leverage ? 'active' : undefined}
+                aria-pressed={option === leverage}
+                onClick={() => selectLeverage(option)}
+              >
+                {option}x
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div
           className="order-type-tabs"
           role="group"
@@ -135,6 +175,16 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
             {Number.isFinite(orderValue)
               ? `${formatMoney(orderValue)} ${config.quote}`
               : '—'}
+          </dd>
+          <dt>{t('components.orderForm.margin')}</dt>
+          <dd>
+            {Number.isFinite(orderValue)
+              ? `${formatMoney(orderValue / leverage)} ${config.quote}`
+              : '—'}
+          </dd>
+          <dt>{t('components.orderForm.buyingPower')}</dt>
+          <dd>
+            {formatMoney(buyingPower)} {config.quote}
           </dd>
         </dl>
 

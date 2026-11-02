@@ -1,6 +1,7 @@
 import AccountSummary from './accountSummary/AccountSummary'
 import DepositForm from './depositForm/DepositForm'
 import FundsHistory from './fundsHistory/FundsHistory'
+import LiquidationNotices from './liquidationNotices/LiquidationNotices'
 import Navbar from './navbar/Navbar'
 import OrderBook from './orderBook/OrderBook'
 import OrderForm from './orderForm/OrderForm'
@@ -15,6 +16,7 @@ export {
   AccountSummary,
   DepositForm,
   FundsHistory,
+  LiquidationNotices,
   Navbar,
   OrderBook,
   OrderForm,

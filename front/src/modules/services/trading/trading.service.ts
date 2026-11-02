@@ -6,6 +6,7 @@ import type {
   IMarketService,
   ITradingService,
   LedgerEntry,
+  LiquidationNotice,
   MarkPrices,
   Order,
   OrderDraft,
@@ -14,15 +15,20 @@ import type {
   Position,
   PositionView,
   PriceCrossing,
+  SetLeverageResult,
   SymbolId
 } from '@/types'
 import { getMidPrice, MINUTE_CANDLES_PAGE_SIZE } from '@/utils'
 import {
   addDeposit,
   cancelOpenOrder,
+  changeLeverage,
   createAccount,
+  dismissNotices,
   getAccountSummary,
+  getLiquidationPrice,
   getUnrealizedPnl,
+  liquidateIfBreached,
   matchRestingOrders,
   replayCandles,
   submitOrder
@@ -69,6 +75,7 @@ export default class TradingService implements ITradingService {
         if (bestBid === undefined || bestAsk === undefined) return
 
         this.matchOrders(symbol, { low: bestAsk, high: bestBid })
+        this.checkLiquidation(symbol, (bestBid + bestAsk) / 2)
       }
     })
   }
@@ -100,18 +107,56 @@ export default class TradingService implements ITradingService {
   }
 
   public getPositions(): PositionView[] {
-    const positions = tradingStore((state) => state.account.positions)
+    const account = tradingStore((state) => state.account)
     const marks = this.getMarkPrices()
 
-    return Object.values(positions).map((position) => ({
+    return Object.values(account.positions).map((position) => ({
       ...position,
       markPrice: marks[position.symbol],
-      unrealizedPnl: getUnrealizedPnl(position, marks[position.symbol])
+      unrealizedPnl: getUnrealizedPnl(position, marks[position.symbol]),
+      liquidationPrice: getLiquidationPrice(account, position.symbol, marks)
     }))
   }
 
   public getPosition(symbol: SymbolId): Position | undefined {
     return tradingStore((state) => state.account.positions[symbol])
+  }
+
+  // Selected from the account alone so the chart doesn't re-render on every tick.
+  public getLiquidationPrice(symbol: SymbolId): number | undefined {
+    return tradingStore((state) =>
+      getLiquidationPrice(state.account, symbol, this.getLatestMarkPrices())
+    )
+  }
+
+  public getLeverage(symbol: SymbolId): number {
+    return tradingStore((state) => state.account.leverage[symbol])
+  }
+
+  public setLeverage(symbol: SymbolId, leverage: number): SetLeverageResult {
+    const { account, setAccount } = tradingStore.getState()
+    const result = changeLeverage(
+      account,
+      symbol,
+      leverage,
+      this.getLatestMarkPrices()
+    )
+
+    if (!result.ok) return result
+
+    setAccount(result.account)
+
+    return { ok: true }
+  }
+
+  public getLiquidationNotices(): LiquidationNotice[] {
+    return tradingStore((state) => state.account.liquidationNotices)
+  }
+
+  public dismissLiquidationNotices(): void {
+    const { account, setAccount } = tradingStore.getState()
+
+    setAccount(dismissNotices(account))
   }
 
   public getOpenOrders(): Order[] {
@@ -211,15 +256,18 @@ export default class TradingService implements ITradingService {
 
   private async replaySymbol(symbol: SymbolId): Promise<void> {
     const { account, lastProcessedAt } = tradingStore.getState()
-    const placedAt = account.openOrders
+    const position = account.positions[symbol]
+    const changedAt = account.openOrders
       .filter((order) => order.symbol === symbol)
       .map((order) => order.createdAt)
 
-    if (placedAt.length === 0) return
+    if (position) changedAt.push(position.updatedAt)
+    if (changedAt.length === 0) return
 
     let startTime =
-      Math.floor(Math.max(lastProcessedAt, Math.min(...placedAt)) / MINUTE_MS) *
-      MINUTE_MS
+      Math.floor(
+        Math.max(lastProcessedAt, Math.min(...changedAt)) / MINUTE_MS
+      ) * MINUTE_MS
 
     for (;;) {
       const candles = await this.marketService.getMinuteCandlesSince(
@@ -227,20 +275,21 @@ export default class TradingService implements ITradingService {
         startTime
       )
       const { account: current, setAccount } = tradingStore.getState()
-      const next = replayCandles(current, symbol, candles)
+      const next = replayCandles(
+        current,
+        symbol,
+        candles,
+        this.getLatestMarkPrices()
+      )
 
       if (next !== current) setAccount(next)
 
       const last = candles.at(-1)
-      const hasOpenOrders = next.openOrders.some(
-        (order) => order.symbol === symbol
-      )
+      const hasExposure =
+        next.positions[symbol] !== undefined ||
+        next.openOrders.some((order) => order.symbol === symbol)
 
-      if (
-        !last ||
-        candles.length < MINUTE_CANDLES_PAGE_SIZE ||
-        !hasOpenOrders
-      ) {
+      if (!last || candles.length < MINUTE_CANDLES_PAGE_SIZE || !hasExposure) {
         return
       }
 
@@ -258,18 +307,45 @@ export default class TradingService implements ITradingService {
   }
 
   // Held back until a gap is replayed, so a reload during or after a failed
-  // catch-up still replays it. Only needed while orders can fill, and throttled
-  // because every write serializes the whole account to localStorage.
+  // catch-up still replays it. Only needed while orders can fill or positions can
+  // be liquidated, and throttled because every write serializes the whole account
+  // to localStorage.
   private recordProcessedTime(time: number): void {
     if (this.hasUnreplayedGap) return
 
     const { account, lastProcessedAt, setLastProcessedAt } =
       tradingStore.getState()
 
-    if (account.openOrders.length === 0) return
+    if (
+      account.openOrders.length === 0 &&
+      Object.keys(account.positions).length === 0
+    ) {
+      return
+    }
+
     if (time - lastProcessedAt < PROCESSED_SAVE_INTERVAL_MS) return
 
     setLastProcessedAt(time)
+  }
+
+  // Waits for catch-up after a gap: a replay can close at the price the market
+  // actually passed through, where this could only use the price it's at now.
+  private checkLiquidation(symbol: SymbolId, markPrice: number): void {
+    if (this.hasUnreplayedGap) return
+
+    const { account, setAccount } = tradingStore.getState()
+
+    if (!account.positions[symbol]) return
+
+    const next = liquidateIfBreached(
+      account,
+      symbol,
+      markPrice,
+      this.getLatestMarkPrices(),
+      this.marketService.getMarketTime()
+    )
+
+    if (next !== account) setAccount(next)
   }
 
   private matchOrders(symbol: SymbolId, crossing: PriceCrossing): void {

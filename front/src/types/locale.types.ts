@@ -37,6 +37,7 @@ interface IComponents {
     buy: string
     sell: string
     entry: string
+    liquidation: string
   }
   orderForm: {
     title: string
@@ -47,6 +48,10 @@ interface IComponents {
     price: string
     marketNote: string
     orderValue: string
+    margin: string
+    buyingPower: string
+    leverage: string
+    leverageRejected: string
     buy: string
     sell: string
     placed: string
@@ -92,7 +97,13 @@ interface IComponents {
     initial: string
     deposit: string
     trade: string
+    liquidation: string
+    lossCovered: string
     empty: string
+  }
+  liquidation: {
+    message: string
+    dismiss: string
   }
   session: {
     title: string
@@ -110,6 +121,7 @@ interface IComponents {
     size: string
     entry: string
     mark: string
+    liquidationPrice: string
     price: string
     time: string
     liquidity: string
@@ -122,6 +134,7 @@ interface IComponents {
     sell: string
     maker: string
     taker: string
+    liquidation: string
     close: string
     cancel: string
   }

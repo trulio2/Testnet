@@ -4,6 +4,7 @@ export const DEFAULT_SYMBOL: SymbolId = 'BTCUSD'
 export const MINUTE_CANDLES_PAGE_SIZE = 1000
 export const CURRENCIES: Currency[] = ['USD', 'BRL']
 export const MAX_DEPOSIT = 1_000_000
+export const LEVERAGE_OPTIONS = [1, 2, 3, 5, 10, 25, 50]
 
 export const SYMBOLS: Record<SymbolId, SymbolConfig> = {
   BTCUSD: {

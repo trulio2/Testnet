@@ -5,6 +5,8 @@ import type {
   DepositResult,
   Fill,
   LedgerEntry,
+  LeverageResult,
+  LiquidationNotice,
   Liquidity,
   MarkPrices,
   Order,
@@ -16,9 +18,17 @@ import type {
   SymbolId,
   TradeSide,
   TradingAccount,
-  TradingAccountV1
+  TradingAccountV1,
+  TradingAccountV2,
+  TradingAccountV3
 } from '@/types'
-import { CURRENCIES, MAX_DEPOSIT, roundToDecimals, SYMBOLS } from '@/utils'
+import {
+  CURRENCIES,
+  LEVERAGE_OPTIONS,
+  MAX_DEPOSIT,
+  roundToDecimals,
+  SYMBOLS
+} from '@/utils'
 
 export const INITIAL_BALANCES: Record<Currency, number> = {
   USD: 100_000,
@@ -26,10 +36,12 @@ export const INITIAL_BALANCES: Record<Currency, number> = {
 }
 export const MAKER_FEE_RATE = 0.0002
 export const TAKER_FEE_RATE = 0.0005
-export const LEVERAGE = 1
+export const MAINTENANCE_MARGIN_RATE = 0.005
 const MAX_FILLS = 200
 const MAX_LEDGER_ENTRIES = 500
+const MAX_LIQUIDATION_NOTICES = 20
 const MONEY_DECIMALS = 2
+const DEFAULT_LEVERAGE = { BTCUSD: 1, USDBRL: 1 }
 
 function createInitialLedger(
   balances: Record<Currency, number>,
@@ -53,6 +65,8 @@ export function createAccount(time = 0): TradingAccount {
     openOrders: [],
     fills: [],
     ledger: createInitialLedger(INITIAL_BALANCES, 1, time),
+    liquidationNotices: [],
+    leverage: { ...DEFAULT_LEVERAGE },
     nextId: CURRENCIES.length + 1
   }
 }
@@ -62,7 +76,7 @@ export function createAccount(time = 0): TradingAccount {
 export function migrateAccountFromV1(
   account: TradingAccountV1,
   time: number
-): TradingAccount {
+): TradingAccountV2 {
   const balances = { USD: account.walletBalance, BRL: INITIAL_BALANCES.BRL }
 
   return {
@@ -81,6 +95,27 @@ export function migrateAccountFromV1(
     ledger: createInitialLedger(balances, account.nextId, time),
     nextId: account.nextId + CURRENCIES.length
   }
+}
+
+// Positions start counting from the upgrade: catch-up only replays liquidations
+// after a position's last change, so an old position isn't judged on old prices.
+export function migrateAccountFromV2(
+  account: TradingAccountV2,
+  time: number
+): TradingAccountV3 {
+  const positions: TradingAccount['positions'] = {}
+
+  for (const position of Object.values(account.positions)) {
+    positions[position.symbol] = { ...position, updatedAt: time }
+  }
+
+  return { ...account, positions, liquidationNotices: [] }
+}
+
+export function migrateAccountFromV3(
+  account: TradingAccountV3
+): TradingAccount {
+  return { ...account, leverage: { ...DEFAULT_LEVERAGE } }
 }
 
 function appendLedgerEntry(
@@ -155,7 +190,8 @@ export function getBookFillPrice(
 function getSymbolMargin(
   symbol: SymbolId,
   position: Position | undefined,
-  orders: Order[]
+  orders: Order[],
+  leverage: number
 ): number {
   const positionQty = position?.qty ?? 0
   const positionValue = position ? Math.abs(positionQty) * position.avgEntry : 0
@@ -180,19 +216,24 @@ function getSymbolMargin(
     }
   }
 
-  return Math.max(longValue, shortValue) / LEVERAGE
+  return Math.max(longValue, shortValue) / leverage
 }
 
 function getUsedMargin(
   currency: Currency,
-  positions: TradingAccount['positions'],
-  orders: Order[]
+  { positions, openOrders, leverage }: TradingAccount
 ) {
   return (Object.keys(SYMBOLS) as SymbolId[])
     .filter((symbol) => SYMBOLS[symbol].quote === currency)
     .reduce(
       (total, symbol) =>
-        total + getSymbolMargin(symbol, positions[symbol], orders),
+        total +
+        getSymbolMargin(
+          symbol,
+          positions[symbol],
+          openOrders,
+          leverage[symbol]
+        ),
       0
     )
 }
@@ -218,11 +259,7 @@ export function getAccountSummary(
     )
   const walletBalance = account.balances[currency]
   const equity = walletBalance + unrealizedPnl
-  const usedMargin = getUsedMargin(
-    currency,
-    account.positions,
-    account.openOrders
-  )
+  const usedMargin = getUsedMargin(currency, account)
 
   return {
     walletBalance,
@@ -243,9 +280,11 @@ function applyFill(
     price: number
     liquidity: Liquidity
     time: number
+    isLiquidation?: boolean
   }
 ): { account: TradingAccount; fill: Fill } {
-  const { orderId, symbol, side, qty, price, liquidity, time } = input
+  const { orderId, symbol, side, qty, price, liquidity, time, isLiquidation } =
+    input
   const config = SYMBOLS[symbol]
   const current = account.positions[symbol]
   const currentQty = current?.qty ?? 0
@@ -271,7 +310,14 @@ function applyFill(
   const positions = { ...account.positions }
 
   if (nextQty === 0) delete positions[symbol]
-  else positions[symbol] = { symbol, qty: nextQty, avgEntry: nextEntry }
+  else {
+    positions[symbol] = {
+      symbol,
+      qty: nextQty,
+      avgEntry: nextEntry,
+      updatedAt: time
+    }
+  }
 
   const fill: Fill = {
     id: account.nextId,
@@ -283,13 +329,14 @@ function applyFill(
     liquidity,
     fee,
     realizedPnl,
-    time
+    time,
+    ...(isLiquidation ? { isLiquidation } : {})
   }
 
   const { account: settled } = appendLedgerEntry(
     { ...account, nextId: account.nextId + 1 },
     {
-      type: 'trade',
+      type: isLiquidation ? 'liquidation' : 'trade',
       currency: config.quote,
       amount: realizedPnl - fee,
       time,
@@ -370,15 +417,11 @@ export function submitOrder(
     createdAt: time
   }
   const { equity } = getAccountSummary(account, config.quote, marks)
-  const marginBefore = getUsedMargin(
-    config.quote,
-    account.positions,
-    account.openOrders
-  )
-  const marginAfter = getUsedMargin(config.quote, account.positions, [
-    ...account.openOrders,
-    order
-  ])
+  const marginBefore = getUsedMargin(config.quote, account)
+  const marginAfter = getUsedMargin(config.quote, {
+    ...account,
+    openOrders: [...account.openOrders, order]
+  })
   const feeRate = isTaker ? TAKER_FEE_RATE : MAKER_FEE_RATE
   const fee = qty * referencePrice * feeRate
 
@@ -454,25 +497,235 @@ export function matchRestingOrders(
   )
 }
 
+// The price at which a position's currency runs out of margin: where equity meets
+// the maintenance margin of its positions. Undefined when no price can reach it,
+// such as a long whose balance covers the whole fall to zero.
+export function getLiquidationPrice(
+  account: TradingAccount,
+  symbol: SymbolId,
+  marks: MarkPrices
+): number | undefined {
+  const position = account.positions[symbol]
+
+  if (!position) return undefined
+
+  const { quote } = SYMBOLS[symbol]
+  const rate = MAINTENANCE_MARGIN_RATE
+  const size = Math.abs(position.qty)
+  const reserve = Object.values(account.positions)
+    .filter(
+      (other) =>
+        other.symbol !== symbol && SYMBOLS[other.symbol].quote === quote
+    )
+    .reduce((total, other) => {
+      const mark = marks[other.symbol] ?? other.avgEntry
+
+      return (
+        total +
+        other.qty * (mark - other.avgEntry) -
+        Math.abs(other.qty) * mark * rate
+      )
+    }, account.balances[quote])
+  const price =
+    position.qty > 0
+      ? (size * position.avgEntry - reserve) / (size * (1 - rate))
+      : (reserve + size * position.avgEntry) / (size * (1 + rate))
+
+  return price > 0 ? price : undefined
+}
+
+// Closes every position in the currency and cancels its orders. A jump past the
+// point where the balance runs out would leave it negative, so the balance stops
+// at zero and a ledger entry shows the loss that was covered.
+function liquidateCurrency(
+  account: TradingAccount,
+  symbol: SymbolId,
+  price: number,
+  marks: MarkPrices,
+  time: number
+): TradingAccount {
+  const { quote } = SYMBOLS[symbol]
+  const notices: LiquidationNotice[] = []
+  let result: TradingAccount = {
+    ...account,
+    openOrders: account.openOrders.filter(
+      (order) => SYMBOLS[order.symbol].quote !== quote
+    )
+  }
+
+  for (const position of Object.values(account.positions)) {
+    if (SYMBOLS[position.symbol].quote !== quote) continue
+
+    const closePrice = roundToDecimals(
+      position.symbol === symbol
+        ? price
+        : (marks[position.symbol] ?? position.avgEntry),
+      SYMBOLS[position.symbol].priceDecimals
+    )
+    const { account: closed, fill } = applyFill(
+      { ...result, nextId: result.nextId + 1 },
+      {
+        orderId: result.nextId,
+        symbol: position.symbol,
+        side: position.qty > 0 ? 'sell' : 'buy',
+        qty: Math.abs(position.qty),
+        price: closePrice,
+        liquidity: 'taker',
+        time,
+        isLiquidation: true
+      }
+    )
+
+    result = closed
+    notices.push({
+      id: fill.id,
+      symbol: position.symbol,
+      qty: position.qty,
+      price: closePrice,
+      time
+    })
+  }
+
+  const balance = result.balances[quote]
+
+  if (balance < 0) {
+    result = appendLedgerEntry(result, {
+      type: 'lossCovered',
+      currency: quote,
+      amount: -balance,
+      time
+    }).account
+  }
+
+  return {
+    ...result,
+    liquidationNotices: [...notices, ...result.liquidationNotices].slice(
+      0,
+      MAX_LIQUIDATION_NOTICES
+    )
+  }
+}
+
+// Returns the same account when nothing is breached so callers can skip the store
+// write.
+export function liquidateIfBreached(
+  account: TradingAccount,
+  symbol: SymbolId,
+  markPrice: number,
+  marks: MarkPrices,
+  time: number
+): TradingAccount {
+  const position = account.positions[symbol]
+  const liquidationPrice = getLiquidationPrice(account, symbol, marks)
+
+  if (!position || liquidationPrice === undefined) return account
+
+  const isBreached =
+    position.qty > 0
+      ? markPrice <= liquidationPrice
+      : markPrice >= liquidationPrice
+
+  return isBreached
+    ? liquidateCurrency(account, symbol, markPrice, marks, time)
+    : account
+}
+
+// A candle only counts for a position last changed before it opened, because its
+// high and low may come from before that change. The close is at the liquidation
+// price, or at the candle's open if the market had already gone past it.
+function liquidateOnCandle(
+  account: TradingAccount,
+  symbol: SymbolId,
+  candle: Candle,
+  marks: MarkPrices
+): TradingAccount {
+  const openedAt = candle.time * 1000
+  const position = account.positions[symbol]
+  const liquidationPrice = getLiquidationPrice(account, symbol, marks)
+
+  if (
+    !position ||
+    liquidationPrice === undefined ||
+    position.updatedAt >= openedAt
+  ) {
+    return account
+  }
+
+  if (position.qty > 0) {
+    return candle.low <= liquidationPrice
+      ? liquidateCurrency(
+          account,
+          symbol,
+          Math.min(liquidationPrice, candle.open),
+          marks,
+          openedAt
+        )
+      : account
+  }
+
+  return candle.high >= liquidationPrice
+    ? liquidateCurrency(
+        account,
+        symbol,
+        Math.max(liquidationPrice, candle.open),
+        marks,
+        openedAt
+      )
+    : account
+}
+
 // Applies candles from a period the live stream missed. A candle only counts for
 // orders placed before it opened, because its high and low may come from before
 // the order existed.
 export function replayCandles(
   account: TradingAccount,
   symbol: SymbolId,
-  candles: Candle[]
+  candles: Candle[],
+  marks: MarkPrices = {}
 ): TradingAccount {
   return candles.reduce((result, candle) => {
     const openedAt = candle.time * 1000
-
-    return matchRestingOrders(
+    const matched = matchRestingOrders(
       result,
       symbol,
       { low: candle.low, high: candle.high },
       openedAt,
       openedAt
     )
+
+    return liquidateOnCandle(matched, symbol, candle, marks)
   }, account)
+}
+
+export function dismissNotices(account: TradingAccount): TradingAccount {
+  return { ...account, liquidationNotices: [] }
+}
+
+// Raising leverage only frees margin. Lowering it is refused when the margin it
+// would need is more than the equity can cover.
+export function changeLeverage(
+  account: TradingAccount,
+  symbol: SymbolId,
+  leverage: number,
+  marks: MarkPrices
+): LeverageResult {
+  if (!LEVERAGE_OPTIONS.includes(leverage)) {
+    return { ok: false, reason: 'invalidLeverage' }
+  }
+
+  const { quote } = SYMBOLS[symbol]
+  const next = {
+    ...account,
+    leverage: { ...account.leverage, [symbol]: leverage }
+  }
+  const marginAfter = getUsedMargin(quote, next)
+  const { equity, usedMargin } = getAccountSummary(account, quote, marks)
+
+  if (marginAfter > usedMargin && marginAfter > equity) {
+    return { ok: false, reason: 'insufficientMargin' }
+  }
+
+  return { ok: true, account: next }
 }
 
 export function cancelOpenOrder(

@@ -38,7 +38,8 @@ export const pt: ITranslations = {
       feedNote: 'Preços de {feed} na Binance',
       buy: 'Compra',
       sell: 'Venda',
-      entry: 'Entrada'
+      entry: 'Entrada',
+      liquidation: 'Liq.'
     },
     orderForm: {
       title: 'Ordem',
@@ -49,6 +50,11 @@ export const pt: ITranslations = {
       price: 'Preço ({unit})',
       marketNote: 'Executa agora ao melhor preço disponível.',
       orderValue: 'Valor da ordem',
+      margin: 'Margem',
+      buyingPower: 'Poder de compra',
+      leverage: 'Alavancagem',
+      leverageRejected:
+        'Saldo disponível em {quote} insuficiente para {leverage}x. Adicione fundos ou reduza a posição.',
       buy: 'Comprar / Long',
       sell: 'Vender / Short',
       placed: 'Ordem limite enviada.',
@@ -59,7 +65,7 @@ export const pt: ITranslations = {
         belowMinNotional:
           'O valor da ordem deve ser de pelo menos {min} {quote}.',
         insufficientMargin:
-          'Saldo disponível em {quote} insuficiente. Adicione fundos na carteira.',
+          'Saldo disponível em {quote} insuficiente. Adicione fundos na carteira ou aumente a alavancagem.',
         marketUnavailable: 'Dados de mercado indisponíveis no momento.'
       }
     },
@@ -96,7 +102,14 @@ export const pt: ITranslations = {
       initial: 'Saldo inicial',
       deposit: 'Depósito',
       trade: 'Negociação',
+      liquidation: 'Liquidação',
+      lossCovered: 'Perda coberta',
       empty: 'Nenhum lançamento ainda.'
+    },
+    liquidation: {
+      message:
+        'Sua posição {side} de {qty} em {symbol} foi liquidada a {price} {quote}. Suas ordens abertas em {quote} foram canceladas.',
+      dismiss: 'Dispensar'
     },
     session: {
       title: 'O Testnet está aberto em outra aba',
@@ -115,6 +128,7 @@ export const pt: ITranslations = {
       size: 'Qtd.',
       entry: 'Entrada',
       mark: 'Marcação',
+      liquidationPrice: 'Preço de liq.',
       price: 'Preço',
       time: 'Hora (UTC)',
       liquidity: 'Liquidez',
@@ -127,6 +141,7 @@ export const pt: ITranslations = {
       sell: 'Venda',
       maker: 'Maker',
       taker: 'Taker',
+      liquidation: 'Liquidação',
       close: 'Fechar',
       cancel: 'Cancelar'
     },

@@ -58,6 +58,43 @@
   letter-spacing: normal;
 }
 
+.liquidation-notices {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--dash-red);
+  background: color-mix(in srgb, var(--dash-red) 14%, var(--dash-bg));
+  color: var(--text-h);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.liquidation-notices ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.liquidation-notices button {
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid var(--dash-red);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.liquidation-notices button:focus-visible {
+  outline: 2px solid var(--dash-cyan);
+  outline-offset: 1px;
+}
+
 .pnl-up {
   color: var(--dash-green);
 }

@@ -4,6 +4,24 @@ export default class ChangelogRepository implements IChangelogRepository {
   public getEntries(): ChangelogEntry[] {
     return [
       {
+        version: '0.2.0',
+        date: '2026-11-02',
+        items: [
+          {
+            type: 'added',
+            text: 'Leverage from 1x to 50x, set per symbol, with margin and buying power shown on the order form.'
+          },
+          {
+            type: 'added',
+            text: 'Liquidation: positions close when equity falls to the 0.5% maintenance margin, and balances stop at zero after a price gap.'
+          },
+          {
+            type: 'added',
+            text: 'Liquidation price on open positions and on the chart, and a notice when a position is liquidated, including while you were away.'
+          }
+        ]
+      },
+      {
         version: '0.1.0',
         date: '2026-11-02',
         items: [

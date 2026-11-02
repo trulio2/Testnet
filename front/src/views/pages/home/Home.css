@@ -303,6 +303,48 @@ h2.trade-panel-title {
   padding: 10px 12px;
 }
 
+.order-leverage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--dash-muted);
+  font-size: 11px;
+}
+
+.order-leverage > div {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--dash-bg);
+}
+
+.order-leverage button {
+  padding: 3px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dash-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.order-leverage button:hover {
+  color: var(--dash-text);
+}
+
+.order-leverage button.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.order-leverage button:focus-visible {
+  outline: 2px solid var(--dash-cyan);
+  outline-offset: 1px;
+}
+
 .order-type-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -363,9 +405,9 @@ h2.trade-panel-title {
 }
 
 .order-preview {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 8px;
   margin: 0;
 }
 
@@ -375,6 +417,7 @@ h2.trade-panel-title {
 
 .order-preview dd {
   margin: 0;
+  text-align: right;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }

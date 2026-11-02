@@ -1,6 +1,6 @@
 import { Suspense, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
-import { Navbar, SessionNotice } from '@/components'
+import { LiquidationNotices, Navbar, SessionNotice } from '@/components'
 import { useSessionStatus } from '@/modules/services'
 import { init } from '@/setup'
 
@@ -17,6 +17,7 @@ function RootLayout() {
   return (
     <>
       <Navbar />
+      <LiquidationNotices />
       <main>
         <Outlet />
       </main>

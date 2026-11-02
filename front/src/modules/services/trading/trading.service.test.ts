@@ -63,6 +63,7 @@ function setup() {
   const market = {
     getSymbols: () => Object.values(SYMBOLS),
     getMarketTime: () => Date.now(),
+    getLatestBook: () => undefined,
     getMinuteCandlesSince,
     subscribeMarketEvents(listener: MarketEventListener) {
       listeners.push(listener)
@@ -78,7 +79,14 @@ function setup() {
     getMinuteCandlesSince,
     open: () => listeners.forEach((listener) => listener.onOpen()),
     sendTrade: (value: Trade) =>
-      listeners.forEach((listener) => listener.onTrade('BTCUSD', value))
+      listeners.forEach((listener) => listener.onTrade('BTCUSD', value)),
+    sendBook: (bid: number, ask: number) =>
+      listeners.forEach((listener) =>
+        listener.onBook('BTCUSD', {
+          bids: [{ price: bid, qty: 1 }],
+          asks: [{ price: ask, qty: 1 }]
+        })
+      )
   }
 }
 
@@ -185,7 +193,7 @@ describe('catch-up', () => {
     )
   })
 
-  it('stops paging once no orders remain', async () => {
+  it('keeps paging when a filled order leaves a position to watch', async () => {
     const { getMinuteCandlesSince, open } = setup()
     const fullPage = Array.from({ length: MINUTE_CANDLES_PAGE_SIZE }, (_, i) =>
       candle(100 + i, 90)
@@ -195,6 +203,30 @@ describe('catch-up', () => {
     getMinuteCandlesSince.mockResolvedValueOnce(fullPage)
 
     open()
+    await flush()
+
+    expect(tradingStore.getState().account.positions.BTCUSD).toBeDefined()
+    expect(getMinuteCandlesSince).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops paging once a cancelled order leaves nothing to watch', async () => {
+    const { getMinuteCandlesSince, open } = setup()
+    const fullPage = Array.from({ length: MINUTE_CANDLES_PAGE_SIZE }, (_, i) =>
+      candle(100 + i)
+    )
+    let resolve: (candles: Candle[]) => void = () => {}
+
+    seed([order(1, 10 * MINUTE)], 100 * MINUTE)
+    getMinuteCandlesSince.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done
+      })
+    )
+
+    open()
+    await flush()
+    tradingStore.getState().setAccount(createAccount())
+    resolve(fullPage)
     await flush()
 
     expect(getMinuteCandlesSince).toHaveBeenCalledTimes(1)
@@ -339,5 +371,126 @@ describe('saved processing time', () => {
     sendTrade(trade(40 * MINUTE))
 
     expect(lastProcessedAt()).toBe(30 * MINUTE)
+  })
+})
+
+describe('liquidation', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    seed([])
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  // Liquidates near 80.4: a 20 USD balance against 1 long entered at 100.
+  const seedPosition = (updatedAt = 10 * MINUTE, lastProcessedAt = 0) =>
+    tradingStore.setState({
+      account: {
+        ...createAccount(),
+        balances: { USD: 20, BRL: 0 },
+        positions: {
+          BTCUSD: { symbol: 'BTCUSD', qty: 1, avgEntry: 100, updatedAt }
+        }
+      },
+      lastProcessedAt
+    })
+
+  const account = () => tradingStore.getState().account
+
+  it('closes the position when the book mid reaches the price', async () => {
+    const { open, sendBook } = setup()
+
+    seedPosition()
+    open()
+    await flush()
+
+    sendBook(90, 91)
+    expect(account().positions.BTCUSD).toBeDefined()
+
+    sendBook(79, 80)
+    expect(account().positions.BTCUSD).toBeUndefined()
+    expect(account().fills[0]).toMatchObject({
+      price: 79.5,
+      isLiquidation: true
+    })
+    expect(account().liquidationNotices).toHaveLength(1)
+  })
+
+  it('ignores a trade print that never moves the book', async () => {
+    const { open, sendTrade } = setup()
+
+    seedPosition()
+    open()
+    await flush()
+    sendTrade(trade(30 * MINUTE, 50))
+
+    expect(account().positions.BTCUSD).toBeDefined()
+  })
+
+  it('waits for catch-up before liquidating from the live book', async () => {
+    const { open, sendBook, getMinuteCandlesSince } = setup()
+
+    seedPosition()
+    getMinuteCandlesSince.mockReturnValueOnce(new Promise(() => {}))
+    open()
+    await flush()
+    sendBook(79, 80)
+
+    expect(account().positions.BTCUSD).toBeDefined()
+  })
+
+  it('catches up on a position with no open orders', async () => {
+    const { open, getMinuteCandlesSince } = setup()
+
+    seedPosition(10 * MINUTE, 20 * MINUTE)
+    getMinuteCandlesSince.mockResolvedValueOnce([
+      { ...candle(21), open: 90, low: 70 }
+    ])
+    open()
+    await flush()
+
+    expect(getMinuteCandlesSince).toHaveBeenCalledWith('BTCUSD', 20 * MINUTE)
+    expect(account().positions.BTCUSD).toBeUndefined()
+    expect(account().fills[0].time).toBe(21 * MINUTE)
+    expect(account().fills[0].price).toBeCloseTo(80 / 0.995, 2)
+  })
+
+  it('starts from the position when it is newer than the saved time', async () => {
+    const { open, getMinuteCandlesSince } = setup()
+
+    seedPosition(30 * MINUTE + 5_000, 20 * MINUTE)
+    open()
+    await flush()
+
+    expect(getMinuteCandlesSince).toHaveBeenCalledWith('BTCUSD', 30 * MINUTE)
+  })
+
+  it('stops paging once the position is gone', async () => {
+    const { open, getMinuteCandlesSince } = setup()
+    const fullPage = Array.from({ length: MINUTE_CANDLES_PAGE_SIZE }, (_, i) =>
+      candle(100 + i, 50)
+    )
+
+    seedPosition(10 * MINUTE, 100 * MINUTE)
+    getMinuteCandlesSince.mockResolvedValueOnce(fullPage)
+    open()
+    await flush()
+
+    expect(getMinuteCandlesSince).toHaveBeenCalledTimes(1)
+  })
+
+  it('moves the saved time for a position without open orders', async () => {
+    const { open, sendTrade } = setup()
+
+    seedPosition(10 * MINUTE, 20 * MINUTE)
+    open()
+    await flush()
+    sendTrade(trade(30 * MINUTE))
+
+    expect(tradingStore.getState().lastProcessedAt).toBe(30 * MINUTE)
   })
 })

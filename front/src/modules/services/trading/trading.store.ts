@@ -5,9 +5,16 @@ import type {
   SymbolId,
   TradingAccount,
   TradingAccountV1,
+  TradingAccountV2,
+  TradingAccountV3,
   TradingState
 } from '@/types'
-import { createAccount, migrateAccountFromV1 } from './trading.engine'
+import {
+  createAccount,
+  migrateAccountFromV1,
+  migrateAccountFromV2,
+  migrateAccountFromV3
+} from './trading.engine'
 
 export const tradingStore = create<TradingState>()(
   persist(
@@ -27,18 +34,22 @@ export const tradingStore = create<TradingState>()(
     }),
     {
       name: 'trading-storage',
-      version: 2,
+      version: 4,
       migrate(persisted, version) {
-        if (version >= 2) return persisted as TradingState
-
         const state = persisted as Omit<TradingState, 'account'> & {
-          account: TradingAccountV1
+          account: unknown
         }
+        const now = Date.now()
+        const v2 =
+          version < 2
+            ? migrateAccountFromV1(state.account as TradingAccountV1, now)
+            : (state.account as TradingAccountV2)
+        const v3 =
+          version < 3
+            ? migrateAccountFromV2(v2, now)
+            : (state.account as TradingAccountV3)
 
-        return {
-          ...state,
-          account: migrateAccountFromV1(state.account, Date.now())
-        }
+        return { ...state, account: migrateAccountFromV3(v3) }
       },
       partialize: (state) => ({
         account: state.account,
