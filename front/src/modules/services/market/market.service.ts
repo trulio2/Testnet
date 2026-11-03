@@ -1,5 +1,6 @@
 import type {
   Candle,
+  CandleInterval,
   CandleListener,
   CandleSeries,
   CandleStatus,
@@ -222,6 +223,14 @@ export default class MarketService implements IMarketService {
       limit: MINUTE_CANDLES_PAGE_SIZE,
       startTime
     })
+  }
+
+  public getPeriodCandles(
+    symbol: SymbolId,
+    interval: CandleInterval,
+    limit: number
+  ): Promise<Candle[]> {
+    return this.marketRepository.fetchCandles(symbol, interval, { limit })
   }
 
   public async loadOlderCandles(

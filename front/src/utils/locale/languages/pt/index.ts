@@ -82,6 +82,75 @@ export const pt: ITranslations = {
     walletBalance: {
       usedFor: 'Usado em {symbols}'
     },
+    indicators: {
+      title: 'Indicadores',
+      show: 'Mostrar',
+      hide: 'Ocultar',
+      settings: 'Configurar',
+      remove: 'Remover',
+      defaults: 'Padrão',
+      cancel: 'Cancelar',
+      ok: 'Ok',
+      names: {
+        movingAverage: 'Média Móvel',
+        ichimoku: 'Nuvem de Ichimoku',
+        pivots: 'Pivôs'
+      },
+      tabs: { inputs: 'Parâmetros', style: 'Estilo' },
+      methods: { sma: 'Simples', ema: 'Exponencial', wma: 'Ponderada' },
+      sources: {
+        close: 'fechamento',
+        open: 'abertura',
+        high: 'máxima',
+        low: 'mínima',
+        hl2: 'hl2',
+        hlc3: 'hlc3',
+        ohlc4: 'ohlc4'
+      },
+      pivotTypes: {
+        traditional: 'Tradicional',
+        fibonacci: 'Fibonacci',
+        woodie: 'Woodie',
+        classic: 'Clássico',
+        dm: 'DM',
+        camarilla: 'Camarilla'
+      },
+      pivotTimeframes: {
+        auto: 'Automático',
+        day: 'Diário',
+        week: 'Semanal',
+        month: 'Mensal',
+        year: 'Anual'
+      },
+      positions: { left: 'Esquerda', right: 'Direita' },
+      fields: {
+        method: 'Tipo',
+        length: 'Período',
+        source: 'Fonte',
+        offset: 'Deslocamento',
+        color: 'Cor',
+        lineWidth: 'Espessura da linha',
+        conversionPeriods: 'Períodos da Linha de Conversão',
+        basePeriods: 'Períodos da Linha de Base',
+        laggingPeriods: 'Períodos do Lagging Span 2',
+        displacement: 'Deslocamento',
+        conversionLine: 'Linha de Conversão',
+        baseLine: 'Linha de Base',
+        laggingSpan: 'Lagging Span',
+        leadingSpanA: 'Leading Span A',
+        leadingSpanB: 'Leading Span B',
+        cloudUp: 'Nuvem, span A acima',
+        cloudDown: 'Nuvem, span B acima',
+        type: 'Tipo',
+        pivotsTimeframe: 'Período dos Pivôs',
+        pivotsBack: 'Número de Pivôs Anteriores',
+        labels: 'Rótulos',
+        showLabels: 'Mostrar Rótulos',
+        showPrices: 'Mostrar Preços',
+        labelsPosition: 'Posição dos Rótulos',
+        levels: 'Níveis'
+      }
+    },
     feeSettings: {
       title: 'Taxas de negociação',
       note: 'Use as taxas de outra plataforma. A taxa taker vale para ordens a mercado, ordens limite que cruzam o livro e liquidações; a taxa maker vale para ordens limite que ficam no livro antes de executar. Uma taxa maker negativa é um rebate. As mudanças valem para execuções futuras, e redefinir a conta as mantém.',

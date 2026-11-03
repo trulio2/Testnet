@@ -164,6 +164,302 @@ h2.trade-panel-title {
   background: color-mix(in srgb, var(--dash-panel) 70%, transparent);
 }
 
+/* Indicators */
+
+.indicator-menu {
+  position: relative;
+}
+
+.indicator-menu-button {
+  padding: 2px 8px;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dash-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.indicator-menu-button:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.indicator-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+
+.indicator-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 170px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 6px;
+  background: var(--dash-panel-strong);
+  list-style: none;
+}
+
+.indicator-menu-list button {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dash-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.indicator-menu-list button:hover,
+.indicator-menu-list button:focus-visible {
+  outline: 0;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.indicator-legend {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: calc(100% - 90px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+
+.indicator-legend li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  width: fit-content;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--dash-panel) 80%, transparent);
+  font-size: 11px;
+  pointer-events: auto;
+}
+
+.indicator-legend li.is-hidden .indicator-label,
+.indicator-legend li.is-hidden .indicator-swatch {
+  opacity: 0.45;
+}
+
+.indicator-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.indicator-legend button {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--dash-muted);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.indicator-legend button:hover {
+  color: var(--accent);
+}
+
+.indicator-legend button:focus-visible,
+.indicator-menu-button:focus-visible,
+.indicator-dialog button:focus-visible {
+  outline: 2px solid var(--dash-cyan);
+  outline-offset: 1px;
+}
+
+.indicator-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(85vh, 720px);
+  padding: 0;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 8px;
+  background: var(--dash-panel-strong);
+  color: var(--dash-text);
+  font-size: 13px;
+  text-align: left;
+}
+
+.indicator-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.indicator-dialog::backdrop {
+  background: transparent;
+}
+
+.indicator-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 6px;
+}
+
+.indicator-dialog h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.indicator-dialog-close {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--dash-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.indicator-tabs {
+  display: flex;
+  gap: 16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--dash-border-strong);
+}
+
+.indicator-tabs button {
+  margin-bottom: -1px;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--dash-muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.indicator-tabs button.active {
+  border-bottom-color: var(--text-h);
+  color: var(--text-h);
+}
+
+.indicator-dialog-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.indicator-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.indicator-row input:not([type='color']),
+.indicator-row select {
+  box-sizing: border-box;
+  width: 130px;
+  padding: 5px 8px;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 4px;
+  background: var(--dash-bg);
+  color: var(--dash-text);
+  font: inherit;
+}
+
+.indicator-dialog input[type='color'] {
+  width: 32px;
+  height: 26px;
+  padding: 2px;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 4px;
+  background: var(--dash-bg);
+  cursor: pointer;
+}
+
+.indicator-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.indicator-section {
+  margin: 6px 0 0;
+  color: var(--dash-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.indicator-levels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+}
+
+.indicator-level {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.indicator-level > span {
+  width: 24px;
+}
+
+.indicator-level.is-P {
+  grid-column: 1 / -1;
+}
+
+.indicator-dialog > footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--dash-border-strong);
+}
+
+.indicator-dialog > footer > span {
+  flex: 1;
+}
+
+.indicator-button {
+  padding: 5px 12px;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dash-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.indicator-button:hover {
+  border-color: var(--accent-border);
+}
+
+.indicator-button.is-primary {
+  border-color: var(--text-h);
+  background: var(--text-h);
+  color: var(--dash-bg);
+}
+
 /* Order book */
 
 .book-columns,

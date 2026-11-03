@@ -4,6 +4,15 @@ export default class ChangelogRepository implements IChangelogRepository {
   public getEntries(): ChangelogEntry[] {
     return [
       {
+        version: '0.4.0',
+        items: [
+          {
+            type: 'added',
+            text: 'Chart indicators: moving averages, Ichimoku Cloud and pivots, each with its own settings, and more than one of the same kind at a time.'
+          }
+        ]
+      },
+      {
         version: '0.3.1',
         items: [
           {

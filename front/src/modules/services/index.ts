@@ -1,4 +1,11 @@
 import { ChangelogRepository, ChangelogService } from './changelog'
+import {
+  IndicatorsService,
+  useIndicatorActions,
+  useIndicatorComputations,
+  useIndicatorOptions,
+  useIndicators
+} from './indicators'
 import { LocaleService, useLocale } from './locale'
 import {
   MarketRepository,
@@ -39,6 +46,7 @@ import {
 export {
   ChangelogRepository,
   ChangelogService,
+  IndicatorsService,
   LocaleService,
   MarketRepository,
   MarketService,
@@ -51,6 +59,10 @@ export {
   useDocumentTitle,
   useFeeRates,
   useFills,
+  useIndicatorActions,
+  useIndicatorComputations,
+  useIndicatorOptions,
+  useIndicators,
   useLedger,
   useLeverage,
   useLiquidationNotices,

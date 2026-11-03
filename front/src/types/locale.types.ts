@@ -77,6 +77,56 @@ interface IComponents {
   walletBalance: {
     usedFor: string
   }
+  indicators: {
+    title: string
+    show: string
+    hide: string
+    settings: string
+    remove: string
+    defaults: string
+    cancel: string
+    ok: string
+    names: Record<'movingAverage' | 'ichimoku' | 'pivots', string>
+    tabs: Record<'inputs' | 'style', string>
+    methods: Record<'sma' | 'ema' | 'wma', string>
+    sources: Record<
+      'close' | 'open' | 'high' | 'low' | 'hl2' | 'hlc3' | 'ohlc4',
+      string
+    >
+    pivotTypes: Record<
+      'traditional' | 'fibonacci' | 'woodie' | 'classic' | 'dm' | 'camarilla',
+      string
+    >
+    pivotTimeframes: Record<'auto' | 'day' | 'week' | 'month' | 'year', string>
+    positions: Record<'left' | 'right', string>
+    fields: {
+      method: string
+      length: string
+      source: string
+      offset: string
+      color: string
+      lineWidth: string
+      conversionPeriods: string
+      basePeriods: string
+      laggingPeriods: string
+      displacement: string
+      conversionLine: string
+      baseLine: string
+      laggingSpan: string
+      leadingSpanA: string
+      leadingSpanB: string
+      cloudUp: string
+      cloudDown: string
+      type: string
+      pivotsTimeframe: string
+      pivotsBack: string
+      labels: string
+      showLabels: string
+      showPrices: string
+      labelsPosition: string
+      levels: string
+    }
+  }
   feeSettings: {
     title: string
     note: string

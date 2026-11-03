@@ -80,6 +80,75 @@ export const en: ITranslations = {
     walletBalance: {
       usedFor: 'Used for {symbols}'
     },
+    indicators: {
+      title: 'Indicators',
+      show: 'Show',
+      hide: 'Hide',
+      settings: 'Settings',
+      remove: 'Remove',
+      defaults: 'Defaults',
+      cancel: 'Cancel',
+      ok: 'Ok',
+      names: {
+        movingAverage: 'Moving Average',
+        ichimoku: 'Ichimoku Cloud',
+        pivots: 'Pivots'
+      },
+      tabs: { inputs: 'Inputs', style: 'Style' },
+      methods: { sma: 'Simple', ema: 'Exponential', wma: 'Weighted' },
+      sources: {
+        close: 'close',
+        open: 'open',
+        high: 'high',
+        low: 'low',
+        hl2: 'hl2',
+        hlc3: 'hlc3',
+        ohlc4: 'ohlc4'
+      },
+      pivotTypes: {
+        traditional: 'Traditional',
+        fibonacci: 'Fibonacci',
+        woodie: 'Woodie',
+        classic: 'Classic',
+        dm: 'DM',
+        camarilla: 'Camarilla'
+      },
+      pivotTimeframes: {
+        auto: 'Auto',
+        day: 'Daily',
+        week: 'Weekly',
+        month: 'Monthly',
+        year: 'Yearly'
+      },
+      positions: { left: 'Left', right: 'Right' },
+      fields: {
+        method: 'Type',
+        length: 'Length',
+        source: 'Source',
+        offset: 'Offset',
+        color: 'Color',
+        lineWidth: 'Line width',
+        conversionPeriods: 'Conversion Line Periods',
+        basePeriods: 'Base Line Periods',
+        laggingPeriods: 'Lagging Span 2 Periods',
+        displacement: 'Displacement',
+        conversionLine: 'Conversion Line',
+        baseLine: 'Base Line',
+        laggingSpan: 'Lagging Span',
+        leadingSpanA: 'Leading Span A',
+        leadingSpanB: 'Leading Span B',
+        cloudUp: 'Cloud, span A above',
+        cloudDown: 'Cloud, span B above',
+        type: 'Type',
+        pivotsTimeframe: 'Pivots Timeframe',
+        pivotsBack: 'Number of Pivots Back',
+        labels: 'Labels',
+        showLabels: 'Show Labels',
+        showPrices: 'Show Prices',
+        labelsPosition: 'Labels Position',
+        levels: 'Levels'
+      }
+    },
     feeSettings: {
       title: 'Trading fees',
       note: 'Match the fees of another platform. Taker applies to market orders, limit orders that cross the book and liquidations; maker applies to limit orders that rest first. A negative maker fee is a rebate. Changes apply to future fills, and resetting the account keeps them.',

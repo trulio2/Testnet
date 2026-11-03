@@ -1,4 +1,5 @@
 export * from './changelog.types'
+export * from './indicator.types'
 export * from './locale.types'
 export * from './market.types'
 export * from './services.types'

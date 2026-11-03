@@ -12,6 +12,8 @@ import {
 } from 'lightweight-charts'
 import {
   useCandles,
+  useIndicatorComputations,
+  useIndicators,
   useLiquidationPrice,
   useLocale,
   usePosition,
@@ -20,6 +22,9 @@ import {
   useSymbolOrders
 } from '@/modules/services'
 import type { Candle, SymbolId } from '@/types'
+import IndicatorLegend from '../indicators/IndicatorLegend'
+import IndicatorMenu from '../indicators/IndicatorMenu'
+import { IndicatorLayers } from './IndicatorLayers'
 
 const DEFAULT_BAR_SPACING = 8
 const RIGHT_OFFSET_CANDLES = 6
@@ -33,6 +38,7 @@ interface ChartView {
   upColor: string
   downColor: string
   entryColor: string
+  layers: IndicatorLayers
 }
 
 interface HoveredCandle {
@@ -80,6 +86,8 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
   const orders = useSymbolOrders(symbol)
   const position = usePosition(symbol)
   const liquidationPrice = useLiquidationPrice(symbol)
+  const indicators = useIndicators()
+  const indicatorComputations = useIndicatorComputations()
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<ChartView | null>(null)
 
@@ -157,14 +165,21 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
       volume,
       upColor,
       downColor,
-      entryColor: readToken('--dash-cyan')
+      entryColor: readToken('--dash-cyan'),
+      layers: new IndicatorLayers(
+        chart,
+        candles,
+        indicatorComputations,
+        `11px ${readToken('--mono')}`
+      )
     }
 
     return () => {
+      viewRef.current?.layers.dispose()
       viewRef.current = null
       chart.remove()
     }
-  }, [])
+  }, [indicatorComputations])
 
   useEffect(() => {
     const view = viewRef.current
@@ -182,6 +197,14 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
   }, [config, formatPrice])
 
   useEffect(() => {
+    viewRef.current?.layers.setContext({ symbol, timeframe, formatPrice })
+  }, [symbol, timeframe, formatPrice])
+
+  useEffect(() => {
+    viewRef.current?.layers.setIndicators(indicators)
+  }, [indicators])
+
+  useEffect(() => {
     const view = viewRef.current
 
     if (!view) return
@@ -189,10 +212,12 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
     const timeScale = view.chart.timeScale()
 
     setChartData(view, [])
+    view.layers.setCandles([])
 
     const unsubscribe = subscribe({
       onReset(data) {
         setChartData(view, data)
+        view.layers.setCandles(data)
         timeScale.resetTimeScale()
       },
       onHistory(data, prepended) {
@@ -200,6 +225,7 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
         const isFollowingLatest = timeScale.scrollPosition() >= 0
 
         setChartData(view, data)
+        view.layers.setCandles(data)
 
         if (prepended === 0) {
           if (isFollowingLatest) timeScale.scrollToRealTime()
@@ -213,6 +239,7 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
       onUpdate(candle) {
         view.candles.update(toCandleData(candle))
         view.volume.update(toVolumeData(candle, view))
+        view.layers.updateCandle(candle)
       }
     })
     const handleRangeChange = (range: LogicalRange | null) => {
@@ -297,6 +324,7 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
             </button>
           ))}
         </div>
+        <IndicatorMenu />
         {hovered && (
           <dl className="chart-legend">
             <dt>O</dt>
@@ -317,6 +345,7 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
       </header>
       <div className="chart-canvas">
         <div ref={containerRef} className="chart-container" />
+        <IndicatorLegend />
         {status === 'loading' && (
           <div className="chart-overlay">
             <div

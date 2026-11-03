@@ -1,12 +1,12 @@
 import type {
   Candle,
+  CandleInterval,
   FetchCandlesOptions,
   IMarketRepository,
   MarketStream,
   MarketStreamHandlers,
   OrderBookLevel,
   SymbolId,
-  Timeframe,
   Trade
 } from '@/types'
 import { SYMBOLS } from '@/utils'
@@ -95,12 +95,12 @@ async function getJson<T>(
 export default class MarketRepository implements IMarketRepository {
   public async fetchCandles(
     symbol: SymbolId,
-    timeframe: Timeframe,
+    interval: CandleInterval,
     { limit, startTime, endTime }: FetchCandlesOptions
   ): Promise<Candle[]> {
     const klines = await getJson<BinanceKline[]>('klines', {
       symbol: SYMBOLS[symbol].feedSymbol,
-      interval: timeframe,
+      interval,
       limit: String(limit),
       ...(startTime === undefined ? {} : { startTime: String(startTime) }),
       ...(endTime === undefined ? {} : { endTime: String(endTime) })

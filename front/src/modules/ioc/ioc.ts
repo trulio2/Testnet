@@ -2,6 +2,7 @@
 // hooks that call IoC at module load, which would make this a circular import.
 import ChangelogRepository from '@/modules/services/changelog/changelog.repository'
 import ChangelogService from '@/modules/services/changelog/changelog.service'
+import IndicatorsService from '@/modules/services/indicators/indicators.service'
 import LocaleService from '@/modules/services/locale/locale.service'
 import MarketRepository from '@/modules/services/market/market.repository'
 import MarketService from '@/modules/services/market/market.service'
@@ -46,6 +47,12 @@ class IoC {
         break
       case REPOSITORIES.MARKET:
         newInstance = new MarketRepository()
+        break
+
+      case SERVICES.INDICATORS:
+        newInstance = new IndicatorsService(
+          this.getOrCreateInstance<IMarketService>(SERVICES.MARKET)
+        )
         break
 
       case SERVICES.SESSION:
