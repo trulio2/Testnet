@@ -274,18 +274,21 @@ export function computePivotLevels(
 }
 
 // Each period's levels come from the one before it, so the oldest candle only
-// supplies levels. The newest period has no end yet.
+// supplies levels. The newest period runs until its calendar period ends, because
+// its levels stay in force for all of it.
 export function computePivotPeriods(
   periods: Candle[],
   type: PivotType,
-  back: number
+  back: number,
+  period: PivotPeriod
 ): PivotPeriodLevels[] {
   const results: PivotPeriodLevels[] = []
 
   for (let i = 1; i < periods.length; i++) {
     results.push({
       startTime: periods[i].time,
-      endTime: periods[i + 1]?.time,
+      endTime:
+        periods[i + 1]?.time ?? getNextPeriodStart(period, periods[i].time),
       levels: computePivotLevels(type, periods[i - 1], periods[i].open)
     })
   }

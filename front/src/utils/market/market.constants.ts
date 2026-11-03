@@ -20,7 +20,8 @@ export const SYMBOLS: Record<SymbolId, SymbolConfig> = {
     tickSize: 0.01,
     priceDecimals: 2,
     qtyDecimals: 5,
-    minNotional: 5
+    minNotional: 5,
+    bookSteps: [0.01, 0.1, 0.5, 1, 2.5, 5, 10, 25]
   },
   USDBRL: {
     id: 'USDBRL',
@@ -32,7 +33,8 @@ export const SYMBOLS: Record<SymbolId, SymbolConfig> = {
     tickSize: 0.0001,
     priceDecimals: 4,
     qtyDecimals: 1,
-    minNotional: 10
+    minNotional: 10,
+    bookSteps: [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05]
   }
 }
 

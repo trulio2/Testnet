@@ -305,7 +305,12 @@ describe('computePivotPeriods', () => {
   ]
 
   it('takes each period’s levels from the one before', () => {
-    const [first, second] = computePivotPeriods(periods, 'traditional', 10)
+    const [first, second] = computePivotPeriods(
+      periods,
+      'traditional',
+      10,
+      'day'
+    )
 
     expect(first.startTime).toBe(100)
     expect(first.endTime).toBe(200)
@@ -313,20 +318,33 @@ describe('computePivotPeriods', () => {
     expect(second.levels.P).toBeCloseTo((120 + 100 + 110) / 3)
   })
 
-  it('leaves the newest period open-ended', () => {
-    const result = computePivotPeriods(periods, 'traditional', 10)
+  it('runs the newest period to the end of its calendar period', () => {
+    const at = (iso: string) => Date.parse(iso) / 1000
+    const months: Candle[] = [
+      { ...periods[0], time: at('2026-10-01') },
+      { ...periods[1], time: at('2026-11-01') }
+    ]
+    const result = computePivotPeriods(months, 'traditional', 10, 'month')
 
-    expect(result.at(-1)?.endTime).toBeUndefined()
+    expect(result.at(-1)?.endTime).toBe(at('2026-12-01'))
+  })
+
+  it('runs a daily period for one day', () => {
+    const result = computePivotPeriods(periods, 'traditional', 10, 'day')
+
+    expect(result.at(-1)?.endTime).toBe(200 + 86_400)
   })
 
   it('keeps only the requested number, newest last', () => {
-    const result = computePivotPeriods(periods, 'traditional', 1)
+    const result = computePivotPeriods(periods, 'traditional', 1, 'day')
 
     expect(result.map((period) => period.startTime)).toEqual([200])
   })
 
   it('needs at least two periods', () => {
-    expect(computePivotPeriods([periods[0]], 'traditional', 5)).toEqual([])
+    expect(computePivotPeriods([periods[0]], 'traditional', 5, 'day')).toEqual(
+      []
+    )
   })
 })
 

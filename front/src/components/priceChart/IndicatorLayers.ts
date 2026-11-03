@@ -90,7 +90,8 @@ function findCandleTime(candles: Candle[], time: number): number | undefined {
 function toPivotSegments(
   periods: PivotPeriodLevels[],
   candles: Candle[],
-  settings: PivotSettings
+  settings: PivotSettings,
+  stepSeconds: number
 ): PivotSegment[] {
   const last = candles.at(-1)
 
@@ -102,20 +103,20 @@ function toPivotSegments(
     const startTime = findCandleTime(candles, period.startTime)
 
     if (startTime === undefined) continue
-    if (period.endTime !== undefined && period.endTime <= candles[0].time) {
-      continue
-    }
+    if (period.endTime <= candles[0].time) continue
 
     const levels = (
       Object.entries(period.levels) as [PivotLevelName, number][]
     ).filter(([name]) => settings.levels[name].visible)
 
+    // A period still running ends in the future, where there are no candles yet.
+    const endTime = findCandleTime(candles, period.endTime)
+
     segments.push({
       startTime,
-      endTime:
-        period.endTime === undefined
-          ? last.time
-          : (findCandleTime(candles, period.endTime) ?? last.time),
+      endTime: endTime ?? last.time,
+      barsBeyond:
+        endTime === undefined ? (period.endTime - last.time) / stepSeconds : 0,
       levels: levels.map(([name, price]) => ({
         name,
         price,
@@ -382,7 +383,12 @@ export class IndicatorLayers {
     if (layer.request !== request) return
 
     layer.primitive.setData({
-      segments: toPivotSegments(periods, this.candles, settings),
+      segments: toPivotSegments(
+        periods,
+        this.candles,
+        settings,
+        this.computations.getTimeframeSeconds(context.timeframe)
+      ),
       lineWidth: settings.lineWidth,
       showLabels: settings.showLabels,
       showPrices: settings.showPrices,

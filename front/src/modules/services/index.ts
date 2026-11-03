@@ -3,6 +3,7 @@ import {
   IndicatorsService,
   useIndicatorActions,
   useIndicatorComputations,
+  useIndicatorLegendCollapsed,
   useIndicatorOptions,
   useIndicators
 } from './indicators'
@@ -61,6 +62,7 @@ export {
   useFills,
   useIndicatorActions,
   useIndicatorComputations,
+  useIndicatorLegendCollapsed,
   useIndicatorOptions,
   useIndicators,
   useLedger,

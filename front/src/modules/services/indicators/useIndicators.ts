@@ -33,6 +33,10 @@ const indicatorActions = {
     indicatorsService.updateIndicator(id, settings),
   setIndicatorVisible: (id: number, visible: boolean) =>
     indicatorsService.setIndicatorVisible(id, visible),
+  setAllIndicatorsVisible: (visible: boolean) =>
+    indicatorsService.setAllIndicatorsVisible(visible),
+  setLegendCollapsed: (collapsed: boolean) =>
+    indicatorsService.setLegendCollapsed(collapsed),
   removeIndicator: (id: number) => indicatorsService.removeIndicator(id)
 }
 
@@ -62,11 +66,17 @@ const indicatorComputations: IndicatorComputations = {
     symbol: SymbolId,
     settings: PivotSettings,
     timeframe: Timeframe
-  ) => indicatorsService.loadPivotLevels(symbol, settings, timeframe)
+  ) => indicatorsService.loadPivotLevels(symbol, settings, timeframe),
+  getTimeframeSeconds: (timeframe: Timeframe) =>
+    indicatorsService.getTimeframeSeconds(timeframe)
 }
 
 export function useIndicators() {
   return indicatorsService.getIndicators()
+}
+
+export function useIndicatorLegendCollapsed() {
+  return indicatorsService.isLegendCollapsed()
 }
 
 export function useIndicatorActions() {

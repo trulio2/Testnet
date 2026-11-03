@@ -86,6 +86,10 @@ export const pt: ITranslations = {
       title: 'Indicadores',
       show: 'Mostrar',
       hide: 'Ocultar',
+      showAll: 'Mostrar todos',
+      hideAll: 'Ocultar todos',
+      showList: 'Mostrar lista ({count})',
+      hideList: 'Ocultar lista',
       settings: 'Configurar',
       remove: 'Remover',
       defaults: 'Padrão',
@@ -232,7 +236,9 @@ export const pt: ITranslations = {
       price: 'Preço',
       size: 'Qtd.',
       total: 'Total',
-      spread: 'Spread'
+      spread: 'Spread',
+      widenSpread: 'Aumentar spread',
+      narrowSpread: 'Diminuir spread'
     },
     recentTrades: {
       title: 'Negócios recentes',

@@ -84,6 +84,10 @@ export const en: ITranslations = {
       title: 'Indicators',
       show: 'Show',
       hide: 'Hide',
+      showAll: 'Show all',
+      hideAll: 'Hide all',
+      showList: 'Show list ({count})',
+      hideList: 'Hide list',
       settings: 'Settings',
       remove: 'Remove',
       defaults: 'Defaults',
@@ -230,7 +234,9 @@ export const en: ITranslations = {
       price: 'Price',
       size: 'Size',
       total: 'Total',
-      spread: 'Spread'
+      spread: 'Spread',
+      widenSpread: 'Increase spread',
+      narrowSpread: 'Decrease spread'
     },
     recentTrades: {
       title: 'Recent trades',

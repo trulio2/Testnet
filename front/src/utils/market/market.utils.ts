@@ -1,4 +1,11 @@
-import type { Candle, Locale, OrderBook, Timeframe, Trade } from '@/types'
+import type {
+  Candle,
+  Locale,
+  OrderBook,
+  OrderBookLevel,
+  Timeframe,
+  Trade
+} from '@/types'
 import { TIMEFRAME_SECONDS } from './market.constants'
 
 const NUMBER_LOCALES: Record<Locale, string> = {
@@ -163,4 +170,58 @@ export function formatFeePercent(rate: number, locale: Locale): string {
 
 export function toFeePercentInput(rate: number): string {
   return String(roundToDecimals(rate * 100, 4))
+}
+
+function groupBookSide(
+  levels: OrderBookLevel[],
+  step: number,
+  decimals: number,
+  round: (value: number) => number
+): OrderBookLevel[] {
+  const factor = 10 ** decimals
+  const stepUnits = Math.round(step * factor)
+  const grouped: OrderBookLevel[] = []
+
+  for (const { price, qty } of levels) {
+    // In whole ticks, so fractional steps stay free of float noise.
+    const units = Math.round(price * factor)
+    const groupPrice = (round(units / stepUnits) * stepUnits) / factor
+    const last = grouped.at(-1)
+
+    if (last?.price === groupPrice) last.qty += qty
+    else grouped.push({ price: groupPrice, qty })
+  }
+
+  return grouped
+}
+
+// Bids round down and asks round up, so a grouped price is always one the
+// whole group can trade at, and the spread widens along with the step.
+export function groupOrderBook(
+  { bids, asks }: OrderBook,
+  step: number,
+  decimals: number
+): OrderBook {
+  return {
+    bids: groupBookSide(bids, step, decimals, Math.floor),
+    asks: groupBookSide(asks, step, decimals, Math.ceil)
+  }
+}
+
+// Adds a slower, deeper snapshot beyond the live levels, which win wherever the
+// two overlap because they're newer.
+export function mergeBookDepth(live: OrderBook, deep: OrderBook): OrderBook {
+  const lowestBid = live.bids.at(-1)?.price
+  const highestAsk = live.asks.at(-1)?.price
+
+  return {
+    bids:
+      lowestBid === undefined
+        ? live.bids
+        : [...live.bids, ...deep.bids.filter((l) => l.price < lowestBid)],
+    asks:
+      highestAsk === undefined
+        ? live.asks
+        : [...live.asks, ...deep.asks.filter((l) => l.price > highestAsk)]
+  }
 }

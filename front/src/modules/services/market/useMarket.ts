@@ -14,7 +14,9 @@ import {
   formatCompact,
   formatDecimal,
   formatSignedPercent,
-  formatUtcTime
+  formatUtcTime,
+  groupOrderBook,
+  mergeBookDepth
 } from '@/utils'
 import useLocale from '../locale/useLocale'
 
@@ -106,7 +108,34 @@ export function useLastPrice(symbol: SymbolId) {
 }
 
 export function useOrderBook(symbol: SymbolId) {
-  return marketService.getOrderBook(symbol)
+  const live = marketService.getOrderBook(symbol)
+  const deep = marketService.getDeepBook(symbol)
+  const step = marketService.getOrderBookStep(symbol)
+  const { bookSteps, priceDecimals } = marketService.getSymbol(symbol)
+  const isGrouped = step > bookSteps[0]
+  const stepIndex = bookSteps.indexOf(step)
+
+  useEffect(() => {
+    if (isGrouped) return marketService.watchDeepBook(symbol)
+  }, [symbol, isGrouped])
+
+  const book = useMemo(() => {
+    if (!live) return undefined
+
+    return groupOrderBook(
+      isGrouped && deep ? mergeBookDepth(live, deep) : live,
+      step,
+      priceDecimals
+    )
+  }, [live, deep, isGrouped, step, priceDecimals])
+
+  return {
+    book,
+    canWiden: stepIndex < bookSteps.length - 1,
+    canNarrow: stepIndex > 0,
+    widen: () => marketService.changeOrderBookStep(symbol, 1),
+    narrow: () => marketService.changeOrderBookStep(symbol, -1)
+  }
 }
 
 export function useRecentTrades(symbol: SymbolId) {

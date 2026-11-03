@@ -2,6 +2,7 @@ import type {
   ISeriesPrimitive,
   ISeriesPrimitivePaneRenderer,
   ISeriesPrimitivePaneView,
+  Logical,
   SeriesAttachedParameter,
   SeriesType,
   Time,
@@ -150,6 +151,7 @@ export interface PivotSegmentLevel {
 export interface PivotSegment {
   startTime: number
   endTime: number
+  barsBeyond: number
   levels: PivotSegmentLevel[]
 }
 
@@ -179,7 +181,13 @@ export class PivotsPrimitive extends CanvasPrimitive {
     if (!param || !options) return
 
     const timeScale = param.chart.timeScale()
-    const { barSpacing } = timeScale.options()
+    const firstBar = timeScale.logicalToCoordinate(0 as Logical)
+    const secondBar = timeScale.logicalToCoordinate(1 as Logical)
+
+    if (firstBar === null || secondBar === null) return
+
+    // Read from the scale because it changes as the chart is zoomed.
+    const barSpacing = secondBar - firstBar
 
     target.useMediaCoordinateSpace(({ context, mediaSize }) => {
       context.lineWidth = options.lineWidth
@@ -195,7 +203,10 @@ export class PivotsPrimitive extends CanvasPrimitive {
         if (startX === null || endX === null) continue
 
         // A period with one candle on screen would otherwise have no width.
-        const right = Math.max(endX, startX + barSpacing)
+        const right = Math.max(
+          endX + segment.barsBeyond * barSpacing,
+          startX + barSpacing
+        )
 
         if (right < 0 || startX > mediaSize.width) continue
 

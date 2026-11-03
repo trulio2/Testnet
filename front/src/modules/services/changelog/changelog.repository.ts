@@ -4,6 +4,28 @@ export default class ChangelogRepository implements IChangelogRepository {
   public getEntries(): ChangelogEntry[] {
     return [
       {
+        version: '0.4.2',
+        items: [
+          {
+            type: 'added',
+            text: 'Plus and minus buttons around the order book spread group the book into wider price steps, up to a maximum for each symbol.'
+          }
+        ]
+      },
+      {
+        version: '0.4.1',
+        items: [
+          {
+            type: 'added',
+            text: 'Collapse the indicator list, and hide or show every indicator at once.'
+          },
+          {
+            type: 'fixed',
+            text: 'Pivots for the current period now extend to the end of the period instead of stopping at the last candle.'
+          }
+        ]
+      },
+      {
         version: '0.4.0',
         items: [
           {

@@ -7,8 +7,12 @@ export const indicatorsStore = create<IndicatorsState>()(
     (set) => ({
       indicators: [],
       nextId: 1,
+      isLegendCollapsed: false,
       setIndicators(indicators: Indicator[], nextId?: number) {
         set((state) => ({ indicators, nextId: nextId ?? state.nextId }))
+      },
+      setLegendCollapsed(isLegendCollapsed: boolean) {
+        set({ isLegendCollapsed })
       }
     }),
     {

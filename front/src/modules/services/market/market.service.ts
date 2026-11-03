@@ -35,6 +35,8 @@ const STALE_AFTER_MS = 15_000
 const WATCHDOG_INTERVAL_MS = 5_000
 const BASE_RECONNECT_DELAY_MS = 1_000
 const MAX_RECONNECT_DELAY_MS = 30_000
+const DEEP_BOOK_LEVELS = 1000
+const DEEP_BOOK_POLL_MS = 3_000
 const NO_TRADES: Trade[] = []
 
 interface CandleSubscription {
@@ -67,6 +69,10 @@ export default class MarketService implements IMarketService {
   private clockOffset = 0
   private eventListeners = new Set<MarketEventListener>()
   private subscriptions = new Map<string, CandleSubscription>()
+  private deepBookWatches = new Map<
+    SymbolId,
+    { watchers: number; timer: ReturnType<typeof setInterval> }
+  >()
 
   constructor(private marketRepository: IMarketRepository) {}
 
@@ -125,6 +131,65 @@ export default class MarketService implements IMarketService {
 
   // Current to the last message, unlike the store, which only updates on
   // animation frames and so stops while the tab is hidden.
+  public getDeepBook(symbol: SymbolId): OrderBook | undefined {
+    return marketStore((state) => state.deepBooks[symbol])
+  }
+
+  // The stream only sends 20 levels, too few to group. The deeper snapshot is
+  // polled only while something is watching it, because each request counts
+  // against the exchange's rate limit.
+  public watchDeepBook(symbol: SymbolId): () => void {
+    const watch = this.deepBookWatches.get(symbol)
+
+    if (watch) {
+      watch.watchers += 1
+    } else {
+      this.deepBookWatches.set(symbol, {
+        watchers: 1,
+        timer: setInterval(
+          () => void this.pollDeepBook(symbol),
+          DEEP_BOOK_POLL_MS
+        )
+      })
+      void this.pollDeepBook(symbol)
+    }
+
+    return () => {
+      const current = this.deepBookWatches.get(symbol)
+
+      if (!current) return
+
+      current.watchers -= 1
+
+      if (current.watchers > 0) return
+
+      clearInterval(current.timer)
+      this.deepBookWatches.delete(symbol)
+      marketStore.getState().setDeepBook(symbol, undefined)
+    }
+  }
+
+  public getOrderBookStep(symbol: SymbolId): number {
+    const { bookSteps } = SYMBOLS[symbol]
+
+    return chartPreferencesStore((state) => {
+      const step = state.bookSteps[symbol]
+
+      return step !== undefined && bookSteps.includes(step)
+        ? step
+        : bookSteps[0]
+    })
+  }
+
+  public changeOrderBookStep(symbol: SymbolId, direction: 1 | -1): void {
+    const { bookSteps } = SYMBOLS[symbol]
+    const preferences = chartPreferencesStore.getState()
+    const current = bookSteps.indexOf(preferences.bookSteps[symbol] ?? NaN)
+    const next = bookSteps[Math.max(current, 0) + direction]
+
+    if (next !== undefined) preferences.setBookStep(symbol, next)
+  }
+
   public getLatestBook(symbol: SymbolId): OrderBook | undefined {
     return this.latestBooks[symbol]
   }
@@ -371,6 +436,24 @@ export default class MarketService implements IMarketService {
 
     this.stream.close()
     this.handleDisconnect()
+  }
+
+  private async pollDeepBook(symbol: SymbolId): Promise<void> {
+    if (document.visibilityState === 'hidden') return
+
+    try {
+      const book = await this.marketRepository.fetchOrderBook(
+        symbol,
+        DEEP_BOOK_LEVELS
+      )
+
+      if (this.deepBookWatches.has(symbol)) {
+        marketStore.getState().setDeepBook(symbol, book)
+      }
+    } catch (error) {
+      // The live levels keep showing and the next poll tries again.
+      console.error(error)
+    }
   }
 
   private async seedRecentTrades(symbol: SymbolId): Promise<void> {

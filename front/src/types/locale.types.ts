@@ -81,6 +81,10 @@ interface IComponents {
     title: string
     show: string
     hide: string
+    showAll: string
+    hideAll: string
+    showList: string
+    hideList: string
     settings: string
     remove: string
     defaults: string
@@ -206,6 +210,8 @@ interface IComponents {
     size: string
     total: string
     spread: string
+    widenSpread: string
+    narrowSpread: string
   }
   recentTrades: {
     title: string

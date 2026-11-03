@@ -93,7 +93,7 @@ export type PivotLevels = Partial<Record<PivotLevelName, number>>
 
 export interface PivotPeriodLevels {
   startTime: number
-  endTime?: number
+  endTime: number
   levels: PivotLevels
 }
 
@@ -113,10 +113,14 @@ export interface IndicatorComputations {
     settings: PivotSettings,
     timeframe: Timeframe
   ): Promise<PivotPeriodLevels[]>
+  getTimeframeSeconds(timeframe: Timeframe): number
 }
 
 export interface IIndicatorsService extends IndicatorComputations {
   getIndicators(): Indicator[]
+  isLegendCollapsed(): boolean
+  setLegendCollapsed(collapsed: boolean): void
+  setAllIndicatorsVisible(visible: boolean): void
   addIndicator(type: IndicatorType): Indicator
   updateIndicator(id: number, settings: IndicatorSettings): void
   setIndicatorVisible(id: number, visible: boolean): void
@@ -126,5 +130,7 @@ export interface IIndicatorsService extends IndicatorComputations {
 export interface IndicatorsState {
   indicators: Indicator[]
   nextId: number
+  isLegendCollapsed: boolean
   setIndicators(indicators: Indicator[], nextId?: number): void
+  setLegendCollapsed(collapsed: boolean): void
 }

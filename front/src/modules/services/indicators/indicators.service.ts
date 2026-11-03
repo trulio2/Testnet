@@ -23,7 +23,8 @@ import {
   createDefaultSettings,
   getNextPeriodStart,
   MINUTE_CANDLES_PAGE_SIZE,
-  resolvePivotPeriod
+  resolvePivotPeriod,
+  TIMEFRAME_SECONDS
 } from '@/utils'
 import { indicatorsStore } from './indicators.store'
 
@@ -74,6 +75,22 @@ export default class IndicatorsService implements IIndicatorsService {
     this.changeIndicator(id, { visible })
   }
 
+  public setAllIndicatorsVisible(visible: boolean): void {
+    const { indicators, setIndicators } = indicatorsStore.getState()
+
+    setIndicators(
+      indicators.map((indicator) => ({ ...indicator, visible }) as Indicator)
+    )
+  }
+
+  public isLegendCollapsed(): boolean {
+    return indicatorsStore((state) => state.isLegendCollapsed)
+  }
+
+  public setLegendCollapsed(collapsed: boolean): void {
+    indicatorsStore.getState().setLegendCollapsed(collapsed)
+  }
+
   public removeIndicator(id: number): void {
     const { indicators, setIndicators } = indicatorsStore.getState()
 
@@ -108,7 +125,16 @@ export default class IndicatorsService implements IIndicatorsService {
       settings.pivotsBack + 1
     )
 
-    return computePivotPeriods(candles, settings.pivotType, settings.pivotsBack)
+    return computePivotPeriods(
+      candles,
+      settings.pivotType,
+      settings.pivotsBack,
+      period
+    )
+  }
+
+  public getTimeframeSeconds(timeframe: Timeframe): number {
+    return TIMEFRAME_SECONDS[timeframe]
   }
 
   private changeIndicator(id: number, changes: Partial<Indicator>): void {

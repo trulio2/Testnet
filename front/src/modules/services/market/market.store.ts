@@ -5,6 +5,7 @@ export const marketStore = create<MarketState>()((set) => ({
   status: 'connecting',
   tickers: {},
   books: {},
+  deepBooks: {},
   trades: {},
   series: {},
   setStatus(status: ConnectionStatus) {
@@ -12,6 +13,9 @@ export const marketStore = create<MarketState>()((set) => ({
   },
   applyStreamBatch(batch) {
     set(batch)
+  },
+  setDeepBook(symbol, book) {
+    set((state) => ({ deepBooks: { ...state.deepBooks, [symbol]: book } }))
   },
   setSeries(key: string, series: CandleSeries) {
     set((state) => ({ series: { ...state.series, [key]: series } }))

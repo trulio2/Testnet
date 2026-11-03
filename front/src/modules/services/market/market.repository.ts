@@ -5,6 +5,7 @@ import type {
   IMarketRepository,
   MarketStream,
   MarketStreamHandlers,
+  OrderBook,
   OrderBookLevel,
   SymbolId,
   Trade
@@ -119,6 +120,18 @@ export default class MarketRepository implements IMarketRepository {
     })
 
     return trades.map(toTrade)
+  }
+
+  public async fetchOrderBook(
+    symbol: SymbolId,
+    limit: number
+  ): Promise<OrderBook> {
+    const { bids, asks } = await getJson<BinanceDepth>('depth', {
+      symbol: SYMBOLS[symbol].feedSymbol,
+      limit: String(limit)
+    })
+
+    return { bids: bids.map(toLevel), asks: asks.map(toLevel) }
   }
 
   public openStream(handlers: MarketStreamHandlers): MarketStream {

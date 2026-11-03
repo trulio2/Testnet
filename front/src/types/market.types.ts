@@ -23,6 +23,7 @@ export interface SymbolConfig {
   priceDecimals: number
   qtyDecimals: number
   minNotional: number
+  bookSteps: number[]
 }
 
 export interface Candle {
@@ -103,6 +104,7 @@ export interface IMarketRepository {
     options: FetchCandlesOptions
   ): Promise<Candle[]>
   fetchRecentTrades(symbol: SymbolId, limit: number): Promise<Trade[]>
+  fetchOrderBook(symbol: SymbolId, limit: number): Promise<OrderBook>
   openStream(handlers: MarketStreamHandlers): MarketStream
 }
 
@@ -119,6 +121,10 @@ export interface IMarketService {
   getLastPrice(symbol: SymbolId): number | undefined
   getMarkPrice(symbol: SymbolId): number | undefined
   getOrderBook(symbol: SymbolId): OrderBook | undefined
+  getDeepBook(symbol: SymbolId): OrderBook | undefined
+  watchDeepBook(symbol: SymbolId): () => void
+  getOrderBookStep(symbol: SymbolId): number
+  changeOrderBookStep(symbol: SymbolId, direction: 1 | -1): void
   getLatestBook(symbol: SymbolId): OrderBook | undefined
   isLive(): boolean
   getMarketTime(): number
@@ -146,19 +152,23 @@ export interface IMarketService {
 
 export interface ChartPreferencesState {
   timeframe: Timeframe
+  bookSteps: Partial<Record<SymbolId, number>>
   setTimeframe(timeframe: Timeframe): void
+  setBookStep(symbol: SymbolId, step: number): void
 }
 
 export interface MarketState {
   status: ConnectionStatus
   tickers: Partial<Record<SymbolId, Ticker>>
   books: Partial<Record<SymbolId, OrderBook>>
+  deepBooks: Partial<Record<SymbolId, OrderBook>>
   trades: Partial<Record<SymbolId, Trade[]>>
   series: Record<string, CandleSeries>
   setStatus(status: ConnectionStatus): void
   applyStreamBatch(
     batch: Pick<MarketState, 'tickers' | 'books' | 'trades'>
   ): void
+  setDeepBook(symbol: SymbolId, book: OrderBook | undefined): void
   setSeries(key: string, series: CandleSeries): void
   removeSeries(key: string): void
 }

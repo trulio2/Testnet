@@ -27,7 +27,7 @@ export default function OrderBook({ symbol }: { symbol: SymbolId }) {
   const { t } = useLocale()
   const { config, formatPrice, formatQty } = useSymbol(symbol)
   const { updateOrderDraft } = useTradingActions()
-  const book = useOrderBook(symbol)
+  const { book, canWiden, canNarrow, widen, narrow } = useOrderBook(symbol)
   const lastPrice = useLastPrice(symbol)
 
   const asks = toDepthRows(book?.asks ?? [])
@@ -77,9 +77,27 @@ export default function OrderBook({ symbol }: { symbol: SymbolId }) {
             <span className="book-last">
               {lastPrice === undefined ? '—' : formatPrice(lastPrice)}
             </span>
-            <span>
-              {t('components.orderBook.spread')}{' '}
-              {spread === undefined ? '—' : formatPrice(spread)}
+            <span className="book-spread">
+              <button
+                type="button"
+                aria-label={t('components.orderBook.narrowSpread')}
+                disabled={!canNarrow}
+                onClick={narrow}
+              >
+                −
+              </button>
+              <span>
+                {t('components.orderBook.spread')}{' '}
+                {spread === undefined ? '—' : formatPrice(spread)}
+              </span>
+              <button
+                type="button"
+                aria-label={t('components.orderBook.widenSpread')}
+                disabled={!canWiden}
+                onClick={widen}
+              >
+                +
+              </button>
             </span>
           </div>
           <div className="book-side">

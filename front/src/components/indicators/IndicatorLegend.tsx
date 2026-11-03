@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   useIndicatorActions,
+  useIndicatorLegendCollapsed,
   useIndicators,
   useLocale
 } from '@/modules/services'
@@ -62,46 +63,83 @@ export default function IndicatorLegend() {
   const { t } = useLocale()
   const indicators = useIndicators()
   const getLabel = useIndicatorLabel()
-  const { removeIndicator, setIndicatorVisible } = useIndicatorActions()
+  const isCollapsed = useIndicatorLegendCollapsed()
+  const {
+    removeIndicator,
+    setAllIndicatorsVisible,
+    setIndicatorVisible,
+    setLegendCollapsed
+  } = useIndicatorActions()
   const [editingId, setEditingId] = useState<number | null>(null)
 
   const editing = indicators.find((indicator) => indicator.id === editingId)
 
   if (indicators.length === 0) return null
 
+  const anyVisible = indicators.some((indicator) => indicator.visible)
+
   return (
     <>
-      <ul className="indicator-legend">
-        {indicators.map((indicator) => (
-          <li
-            key={indicator.id}
-            className={indicator.visible ? undefined : 'is-hidden'}
+      <div className="indicator-legend">
+        <div className="indicator-legend-bar">
+          <button
+            type="button"
+            aria-expanded={!isCollapsed}
+            onClick={() => setLegendCollapsed(!isCollapsed)}
           >
-            <span
-              className="indicator-swatch"
-              style={{ background: getSwatchColor(indicator) }}
-            />
-            <span className="indicator-label">{getLabel(indicator)}</span>
-            <button
-              type="button"
-              aria-pressed={!indicator.visible}
-              onClick={() =>
-                setIndicatorVisible(indicator.id, !indicator.visible)
-              }
-            >
-              {t(
-                `components.indicators.${indicator.visible ? 'hide' : 'show'}`
-              )}
-            </button>
-            <button type="button" onClick={() => setEditingId(indicator.id)}>
-              {t('components.indicators.settings')}
-            </button>
-            <button type="button" onClick={() => removeIndicator(indicator.id)}>
-              {t('components.indicators.remove')}
-            </button>
-          </li>
-        ))}
-      </ul>
+            {isCollapsed
+              ? t('components.indicators.showList', {
+                  count: indicators.length
+                })
+              : t('components.indicators.hideList')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAllIndicatorsVisible(!anyVisible)}
+          >
+            {t(`components.indicators.${anyVisible ? 'hideAll' : 'showAll'}`)}
+          </button>
+        </div>
+        {!isCollapsed && (
+          <ul>
+            {indicators.map((indicator) => (
+              <li
+                key={indicator.id}
+                className={indicator.visible ? undefined : 'is-hidden'}
+              >
+                <span
+                  className="indicator-swatch"
+                  style={{ background: getSwatchColor(indicator) }}
+                />
+                <span className="indicator-label">{getLabel(indicator)}</span>
+                <button
+                  type="button"
+                  aria-pressed={!indicator.visible}
+                  onClick={() =>
+                    setIndicatorVisible(indicator.id, !indicator.visible)
+                  }
+                >
+                  {t(
+                    `components.indicators.${indicator.visible ? 'hide' : 'show'}`
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingId(indicator.id)}
+                >
+                  {t('components.indicators.settings')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeIndicator(indicator.id)}
+                >
+                  {t('components.indicators.remove')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       {editing && (
         <IndicatorSettingsDialog
           key={editing.id}

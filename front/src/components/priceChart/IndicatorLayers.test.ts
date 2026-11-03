@@ -76,7 +76,8 @@ function setup(periods: PivotPeriodLevels[] = []) {
   const computations: IndicatorComputations = {
     computeMovingAverage,
     computeIchimoku,
-    loadPivotLevels: async () => periods
+    loadPivotLevels: async () => periods,
+    getTimeframeSeconds: () => 50
   }
   const layers = new IndicatorLayers(
     chart as unknown as IChartApi,
@@ -246,7 +247,7 @@ describe('IndicatorLayers', () => {
       const options = await drawOptions(
         [
           { startTime: 100, endTime: 200, levels: { P: 1 } },
-          { startTime: 200, levels: { P: 2 } }
+          { startTime: 200, endTime: 250, levels: { P: 2 } }
         ],
         [candle(100), candle(150), candle(200), candle(250)]
       )
@@ -257,9 +258,31 @@ describe('IndicatorLayers', () => {
       ])
     })
 
+    it('extends a running period past the last candle to where it ends', async () => {
+      const options = await drawOptions(
+        [{ startTime: 200, endTime: 500, levels: { P: 2 } }],
+        [candle(200), candle(250)]
+      )
+
+      expect(options?.segments[0]).toMatchObject({
+        startTime: 200,
+        endTime: 250,
+        barsBeyond: 5
+      })
+    })
+
+    it('does not extend a period that already finished', async () => {
+      const options = await drawOptions(
+        [{ startTime: 100, endTime: 200, levels: { P: 1 } }],
+        [candle(100), candle(150), candle(200), candle(250)]
+      )
+
+      expect(options?.segments[0].barsBeyond).toBe(0)
+    })
+
     it('moves a period start onto the next candle on screen', async () => {
       const options = await drawOptions(
-        [{ startTime: 110, levels: { P: 1 } }],
+        [{ startTime: 110, endTime: 220, levels: { P: 1 } }],
         [candle(100), candle(160), candle(220)]
       )
 
@@ -268,7 +291,7 @@ describe('IndicatorLayers', () => {
 
     it('starts at the first candle when the period began before them', async () => {
       const options = await drawOptions(
-        [{ startTime: 50, levels: { P: 1 } }],
+        [{ startTime: 50, endTime: 160, levels: { P: 1 } }],
         [candle(100), candle(160)]
       )
 
@@ -287,7 +310,7 @@ describe('IndicatorLayers', () => {
     it('leaves out levels switched off in the settings', async () => {
       const base = createDefaultSettings('pivots')
       const options = await drawOptions(
-        [{ startTime: 100, levels: { P: 1, R1: 2 } }],
+        [{ startTime: 100, endTime: 200, levels: { P: 1, R1: 2 } }],
         [candle(100)],
         {
           id: 3,
@@ -307,7 +330,7 @@ describe('IndicatorLayers', () => {
 
     it('clears the drawing when hidden', async () => {
       const options = await drawOptions(
-        [{ startTime: 100, levels: { P: 1 } }],
+        [{ startTime: 100, endTime: 200, levels: { P: 1 } }],
         [candle(100)],
         { ...pivots(), visible: false }
       )

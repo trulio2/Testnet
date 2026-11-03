@@ -233,13 +233,20 @@ h2.trade-panel-title {
   flex-direction: column;
   gap: 2px;
   max-width: calc(100% - 90px);
-  margin: 0;
-  padding: 0;
-  list-style: none;
   pointer-events: none;
 }
 
-.indicator-legend li {
+.indicator-legend ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.indicator-legend li,
+.indicator-legend-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -558,6 +565,41 @@ h2.trade-panel-title {
   font-family: var(--mono);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+.book-spread {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.book-spread button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dash-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.book-spread button:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.book-spread button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.book-spread button:focus-visible {
+  outline: 2px solid var(--dash-cyan);
+  outline-offset: 1px;
 }
 
 .book-last {

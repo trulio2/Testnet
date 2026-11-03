@@ -57,7 +57,11 @@ const stored = () => indicatorsStore.getState().indicators
 
 describe('indicator list', () => {
   beforeEach(() => {
-    indicatorsStore.setState({ indicators: [], nextId: 1 })
+    indicatorsStore.setState({
+      indicators: [],
+      nextId: 1,
+      isLegendCollapsed: false
+    })
   })
 
   it('adds an indicator with its defaults', () => {
@@ -114,6 +118,45 @@ describe('indicator list', () => {
 
     expect(service.addIndicator('ichimoku').id).toBe(2)
     expect(stored()).toHaveLength(1)
+  })
+
+  it('hides and shows every indicator at once', () => {
+    const { service } = setup()
+
+    service.addIndicator('ichimoku')
+    service.addIndicator('pivots')
+
+    service.setAllIndicatorsVisible(false)
+    expect(stored().map((indicator) => indicator.visible)).toEqual([
+      false,
+      false
+    ])
+
+    service.setAllIndicatorsVisible(true)
+    expect(stored().map((indicator) => indicator.visible)).toEqual([true, true])
+  })
+
+  it('keeps each indicator’s settings when hiding them all', () => {
+    const { service } = setup()
+    const added = service.addIndicator('movingAverage')
+
+    service.updateIndicator(added.id, {
+      ...createDefaultSettings('movingAverage'),
+      length: 50
+    })
+    service.setAllIndicatorsVisible(false)
+
+    expect((stored()[0].settings as { length: number }).length).toBe(50)
+  })
+
+  it('remembers whether the list is collapsed, apart from the indicators', () => {
+    const { service } = setup()
+
+    service.addIndicator('pivots')
+    service.setLegendCollapsed(true)
+
+    expect(indicatorsStore.getState().isLegendCollapsed).toBe(true)
+    expect(stored()[0].visible).toBe(true)
   })
 
   it('hides and shows one indicator', () => {
