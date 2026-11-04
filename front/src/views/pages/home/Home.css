@@ -651,7 +651,7 @@ h2.trade-panel-title {
 
 .order-leverage > div {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: auto repeat(7, 1fr);
   gap: 2px;
   padding: 2px;
   border-radius: 4px;
@@ -667,6 +667,10 @@ h2.trade-panel-title {
   font-family: var(--mono);
   font-size: 11px;
   cursor: pointer;
+}
+
+.order-leverage button:first-child {
+  padding-inline: 6px;
 }
 
 .order-leverage button:hover {

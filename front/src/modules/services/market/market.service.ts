@@ -4,6 +4,7 @@ import type {
   CandleListener,
   CandleSeries,
   CandleStatus,
+  FetchCandlesOptions,
   ConnectionStatus,
   IMarketRepository,
   IMarketService,
@@ -22,7 +23,6 @@ import {
   getSeriesKey,
   mergeLatestCandles,
   mergeTrades,
-  MINUTE_CANDLES_PAGE_SIZE,
   SYMBOLS,
   TIMEFRAME_SECONDS
 } from '@/utils'
@@ -280,14 +280,19 @@ export default class MarketService implements IMarketService {
     }
   }
 
-  public getMinuteCandlesSince(
+  public getHistoryCandles(
     symbol: SymbolId,
-    startTime: number
+    interval: CandleInterval,
+    options: FetchCandlesOptions
   ): Promise<Candle[]> {
-    return this.marketRepository.fetchCandles(symbol, '1m', {
-      limit: MINUTE_CANDLES_PAGE_SIZE,
-      startTime
-    })
+    return this.marketRepository.fetchCandles(symbol, interval, options)
+  }
+
+  public getHistoryTrades(
+    symbol: SymbolId,
+    options: FetchCandlesOptions
+  ): Promise<Trade[]> {
+    return this.marketRepository.fetchTrades(symbol, options)
   }
 
   public getPeriodCandles(

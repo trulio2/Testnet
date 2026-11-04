@@ -8,7 +8,8 @@ import {
   type OrderDraft,
   type OrderRequest,
   SERVICES,
-  type SymbolId
+  type SymbolId,
+  type TradeMarket
 } from '@/types'
 import {
   CURRENCIES,
@@ -39,6 +40,11 @@ const tradingActions = {
   closePosition: (symbol: SymbolId) => tradingService.closePosition(symbol),
   resetAccount: () => tradingService.resetAccount(),
   dismissLiquidationNotices: () => tradingService.dismissLiquidationNotices(),
+  retrySimulation: () => tradingService.retrySimulation(),
+  dismissSimulation: () => tradingService.dismissSimulation(),
+  setTradeMode: (symbol: SymbolId, mode: TradeMarket) =>
+    tradingService.setTradeMode(symbol, mode),
+  sellSpotHolding: (symbol: SymbolId) => tradingService.sellSpotHolding(symbol),
   setLeverage: (symbol: SymbolId, leverage: number) =>
     tradingService.setLeverage(symbol, leverage),
   setFeeRates: (symbol: SymbolId, rates: FeeRates) =>
@@ -84,6 +90,26 @@ export function usePositions() {
 
 export function usePosition(symbol: SymbolId) {
   return tradingService.getPosition(symbol)
+}
+
+export function useSimulation() {
+  return tradingService.getSimulation()
+}
+
+export function useTradeMode(symbol: SymbolId) {
+  return tradingService.getTradeMode(symbol)
+}
+
+export function useSpendable(currency: Currency) {
+  return tradingService.getSpendable(currency)
+}
+
+export function useSpotHolding(symbol: SymbolId) {
+  return tradingService.getSpotHolding(symbol)
+}
+
+export function useSpotHoldings() {
+  return tradingService.getSpotHoldings()
 }
 
 export function useLeverage(symbol: SymbolId) {

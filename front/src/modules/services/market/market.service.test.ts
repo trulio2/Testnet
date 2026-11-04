@@ -30,6 +30,7 @@ function setup(seedTrades: Partial<Record<SymbolId, Trade[]>> = {}) {
   const repository: IMarketRepository = {
     fetchCandles: async () => [],
     fetchRecentTrades: async (symbol) => seedTrades[symbol] ?? [],
+    fetchTrades: async () => [],
     fetchOrderBook,
     openStream(streamHandlers) {
       handlers = streamHandlers

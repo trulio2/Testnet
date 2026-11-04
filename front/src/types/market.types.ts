@@ -4,7 +4,7 @@ export type Currency = 'USD' | 'BRL'
 
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
 
-export type CandleInterval = Timeframe | '1w' | '1M'
+export type CandleInterval = Timeframe | '1s' | '1w' | '1M'
 
 export type ConnectionStatus = 'connecting' | 'live' | 'reconnecting'
 
@@ -104,6 +104,7 @@ export interface IMarketRepository {
     options: FetchCandlesOptions
   ): Promise<Candle[]>
   fetchRecentTrades(symbol: SymbolId, limit: number): Promise<Trade[]>
+  fetchTrades(symbol: SymbolId, options: FetchCandlesOptions): Promise<Trade[]>
   fetchOrderBook(symbol: SymbolId, limit: number): Promise<OrderBook>
   openStream(handlers: MarketStreamHandlers): MarketStream
 }
@@ -129,6 +130,15 @@ export interface IMarketService {
   isLive(): boolean
   getMarketTime(): number
   subscribeMarketEvents(listener: MarketEventListener): () => void
+  getHistoryCandles(
+    symbol: SymbolId,
+    interval: CandleInterval,
+    options: FetchCandlesOptions
+  ): Promise<Candle[]>
+  getHistoryTrades(
+    symbol: SymbolId,
+    options: FetchCandlesOptions
+  ): Promise<Trade[]>
   subscribeLastPrice(
     symbol: SymbolId,
     listener: (price: number) => void
@@ -140,7 +150,6 @@ export interface IMarketService {
     timeframe: Timeframe,
     listener: CandleListener
   ): () => void
-  getMinuteCandlesSince(symbol: SymbolId, startTime: number): Promise<Candle[]>
   getPeriodCandles(
     symbol: SymbolId,
     interval: CandleInterval,

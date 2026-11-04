@@ -38,6 +38,7 @@ interface IComponents {
     sell: string
     entry: string
     liquidation: string
+    spot: string
   }
   orderForm: {
     title: string
@@ -47,11 +48,17 @@ interface IComponents {
     size: string
     price: string
     marketNote: string
+    mode: string
+    spot: string
+    canSpend: string
+    spotBalance: string
+    canSell: string
+    buySpot: string
+    sellSpot: string
     orderValue: string
     margin: string
     buyingPower: string
     fees: string
-    leverage: string
     leverageRejected: string
     buy: string
     sell: string
@@ -62,6 +69,8 @@ interface IComponents {
       invalidPrice: string
       belowMinNotional: string
       insufficientMargin: string
+      insufficientFunds: string
+      insufficientSpotBalance: string
       marketUnavailable: string
     }
   }
@@ -165,17 +174,48 @@ interface IComponents {
     trade: string
     liquidation: string
     lossCovered: string
+    spotBuy: string
+    spotSell: string
     empty: string
   }
   liquidation: {
     message: string
     dismiss: string
   }
+  simulation: {
+    title: string
+    running: string
+    checkedUpTo: string
+    failed: string
+    retry: string
+    nothingHappened: string
+    fill: string
+    cancelled: string
+    estimated: string
+    close: string
+  }
   session: {
     title: string
     description: string
   }
+  spotBalance: {
+    title: string
+    boughtOn: string
+    available: string
+    avgCost: string
+    value: string
+    unrealizedPnl: string
+  }
   ordersPanel: {
+    spot: string
+    spotEmpty: string
+    margin: string
+    market: string
+    balance: string
+    available: string
+    avgCost: string
+    value: string
+    sellAll: string
     positions: string
     orders: string
     fills: string

@@ -18,38 +18,57 @@ import type {
   PriceCrossing,
   SetFeeRatesResult,
   SetLeverageResult,
-  SymbolId
+  SimulationEvent,
+  SimulationRun,
+  SpotHoldingView,
+  SymbolId,
+  Trade,
+  TradeMarket,
+  TradingAccount
 } from '@/types'
-import { getMidPrice, MINUTE_CANDLES_PAGE_SIZE } from '@/utils'
+import { CURRENCIES, getMidPrice } from '@/utils'
 import {
   addDeposit,
   cancelOpenOrder,
   changeFeeRates,
   changeLeverage,
+  changeTradeMode,
   createAccount,
   DEFAULT_FEE_RATES,
   dismissNotices,
   getAccountSummary,
   getLiquidationPrice,
+  getSpendable,
+  getSpotHoldingView,
   getUnrealizedPnl,
+  hasExposure,
   liquidateIfBreached,
   matchRestingOrders,
-  replayCandles,
   submitOrder
 } from './trading.engine'
+import { simulationStore } from './simulation.store'
+import {
+  replayTrades,
+  runSimulation,
+  type SymbolTrade
+} from './trading.simulation'
 import { tradingStore } from './trading.store'
 
 const EMPTY_DRAFT: OrderDraft = { type: 'market', qty: '', price: '' }
 const MINUTE_MS = 60_000
 const PROCESSED_SAVE_INTERVAL_MS = 5_000
-const CATCH_UP_RETRY_MS = 30_000
+const SIMULATION_RETRY_MS = 30_000
+const MIN_VISIBLE_GAP_MS = MINUTE_MS
 
 export default class TradingService implements ITradingService {
   private started = false
   private hasUnreplayedGap = true
-  private catchingUp = false
-  private catchUpQueued = false
-  private catchUpRetryTimer: ReturnType<typeof setTimeout> | null = null
+  private isAwaitingTrade = false
+  private isSimulating = false
+  private isSimulationQueued = false
+  private bufferedTrades: SymbolTrade[] = []
+  private balancesBeforeRun: TradingAccount['balances'] | null = null
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private marketService: IMarketService) {}
 
@@ -66,9 +85,14 @@ export default class TradingService implements ITradingService {
     this.marketService.subscribeMarketEvents({
       onOpen: () => {
         this.hasUnreplayedGap = true
-        void this.catchUp()
+        this.prepareSimulation()
       },
       onTrade: (symbol, trade) => {
+        if (this.hasUnreplayedGap) {
+          this.holdTrade(symbol, trade)
+          return
+        }
+
         this.matchOrders(symbol, { low: trade.price, high: trade.price })
         this.recordProcessedTime(trade.time)
       },
@@ -76,12 +100,31 @@ export default class TradingService implements ITradingService {
         const bestBid = bids[0]?.price
         const bestAsk = asks[0]?.price
 
-        if (bestBid === undefined || bestAsk === undefined) return
+        if (
+          this.hasUnreplayedGap ||
+          bestBid === undefined ||
+          bestAsk === undefined
+        ) {
+          return
+        }
 
         this.matchOrders(symbol, { low: bestAsk, high: bestBid })
         this.checkLiquidation(symbol, (bestBid + bestAsk) / 2)
       }
     })
+  }
+
+  public getSimulation(): SimulationRun | null {
+    return simulationStore((state) => state.run)
+  }
+
+  public retrySimulation(): void {
+    if (!this.isSimulating) this.prepareSimulation()
+  }
+
+  public dismissSimulation(): void {
+    this.balancesBeforeRun = null
+    simulationStore.getState().setRun(null)
   }
 
   public getAccountSummary(currency: Currency): AccountSummary {
@@ -120,6 +163,58 @@ export default class TradingService implements ITradingService {
       unrealizedPnl: getUnrealizedPnl(position, marks[position.symbol]),
       liquidationPrice: getLiquidationPrice(account, position.symbol, marks)
     }))
+  }
+
+  public getSpendable(currency: Currency): number {
+    const account = tradingStore((state) => state.account)
+
+    return getSpendable(account, currency, this.getMarkPrices())
+  }
+
+  public getSpotHolding(symbol: SymbolId): SpotHoldingView {
+    const account = tradingStore((state) => state.account)
+
+    return getSpotHoldingView(account, symbol, this.getMarkPrices())
+  }
+
+  public getSpotHoldings(): SpotHoldingView[] {
+    const account = tradingStore((state) => state.account)
+    const marks = this.getMarkPrices()
+
+    return this.marketService
+      .getSymbols()
+      .filter(({ id }) => account.spot[id] !== undefined)
+      .map(({ id }) => getSpotHoldingView(account, id, marks))
+  }
+
+  // Everything not already set aside for an open spot sell.
+  public sellSpotHolding(symbol: SymbolId): PlaceOrderResult {
+    const { account } = tradingStore.getState()
+    const { availableQty } = getSpotHoldingView(
+      account,
+      symbol,
+      this.getLatestMarkPrices()
+    )
+
+    if (availableQty <= 0) return { ok: true }
+
+    return this.placeOrder({
+      symbol,
+      side: 'sell',
+      type: 'market',
+      market: 'spot',
+      qty: availableQty
+    })
+  }
+
+  public getTradeMode(symbol: SymbolId): TradeMarket {
+    return tradingStore((state) => state.account.tradeMode[symbol])
+  }
+
+  public setTradeMode(symbol: SymbolId, mode: TradeMarket): void {
+    const { account, setAccount } = tradingStore.getState()
+
+    setAccount(changeTradeMode(account, symbol, mode))
   }
 
   public getPosition(symbol: SymbolId): Position | undefined {
@@ -204,7 +299,7 @@ export default class TradingService implements ITradingService {
   }
 
   public placeOrder(request: OrderRequest): PlaceOrderResult {
-    if (!this.marketService.isLive()) {
+    if (!this.marketService.isLive() || this.hasUnreplayedGap) {
       return { ok: false, reason: 'marketUnavailable' }
     }
 
@@ -252,85 +347,154 @@ export default class TradingService implements ITradingService {
     })
   }
 
-  // Replays the time the stream wasn't running: from the last saved point after
-  // a reload, or from the drop after a reconnect. Only one run goes at a time.
-  private async catchUp(): Promise<void> {
-    if (this.catchingUp) {
-      this.catchUpQueued = true
+  // Trading stays paused from here until the gap is replayed, or two paths could
+  // fill the same orders out of order. With nothing open there's nothing to replay.
+  private prepareSimulation(): void {
+    if (this.isSimulating) {
+      this.isSimulationQueued = true
       return
     }
 
-    this.catchingUp = true
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+
+    this.retryTimer = null
+
+    const { account, lastProcessedAt } = tradingStore.getState()
+    const { run, setRun } = simulationStore.getState()
+
+    if (!hasExposure(account)) {
+      this.hasUnreplayedGap = false
+      return
+    }
+
+    this.isAwaitingTrade = true
+    setRun({
+      status: 'running',
+      isVisible: run?.isVisible ?? false,
+      checkedUpTo: this.getSimulationStart(account, lastProcessedAt),
+      events: run?.events ?? [],
+      balances: []
+    })
+  }
+
+  // The first live trade marks where history ends and the stream takes over, in the
+  // exchange's own time, so nothing falls between them even if the clock has drifted.
+  private holdTrade(symbol: SymbolId, trade: Trade): void {
+    if (this.isSimulating) {
+      this.bufferedTrades.push({ symbol, trade })
+    } else if (this.isAwaitingTrade) {
+      this.isAwaitingTrade = false
+      this.bufferedTrades = [{ symbol, trade }]
+      void this.simulateGap(trade.time)
+    }
+  }
+
+  private async simulateGap(end: number): Promise<void> {
+    this.isSimulating = true
+
+    const { account, lastProcessedAt, setAccount, setLastProcessedAt } =
+      tradingStore.getState()
+    const start = this.getSimulationStart(account, lastProcessedAt)
+    const kept = simulationStore.getState().run?.events ?? []
+    const marks = this.getLatestMarkPrices()
+    let events: SimulationEvent[] = kept
+
+    this.balancesBeforeRun ??= account.balances
+    this.updateRun({
+      isVisible:
+        end - start >= MIN_VISIBLE_GAP_MS ||
+        simulationStore.getState().run?.isVisible === true
+    })
 
     try {
-      for (const { id } of this.marketService.getSymbols()) {
-        await this.replaySymbol(id)
-      }
+      const simulated = await runSimulation({
+        account,
+        start,
+        end,
+        marks,
+        source: this.marketService,
+        onProgress: (checkedUpTo) => this.updateRun({ checkedUpTo }),
+        onEvent: (event) => {
+          events = [...events, event]
+          this.updateRun({ events })
+        }
+      })
+      const live = replayTrades(simulated, this.bufferedTrades, {}, marks)
 
-      if (!this.catchUpQueued) this.hasUnreplayedGap = false
+      setAccount(live.account)
+      setLastProcessedAt(this.bufferedTrades.at(-1)?.trade.time ?? end)
+      this.finishSimulation([...events, ...live.events], live.account)
     } catch (error) {
       console.error(error)
-      this.scheduleCatchUpRetry()
-    } finally {
-      this.catchingUp = false
-    }
-
-    if (this.catchUpQueued) {
-      this.catchUpQueued = false
-      void this.catchUp()
+      this.isSimulating = false
+      this.isSimulationQueued = false
+      this.updateRun({ status: 'failed', isVisible: true, events: kept })
+      this.retryTimer = setTimeout(
+        () => this.prepareSimulation(),
+        SIMULATION_RETRY_MS
+      )
     }
   }
 
-  private async replaySymbol(symbol: SymbolId): Promise<void> {
-    const { account, lastProcessedAt } = tradingStore.getState()
-    const position = account.positions[symbol]
-    const changedAt = account.openOrders
-      .filter((order) => order.symbol === symbol)
-      .map((order) => order.createdAt)
+  private finishSimulation(
+    events: SimulationEvent[],
+    account: TradingAccount
+  ): void {
+    const { run, setRun } = simulationStore.getState()
 
-    if (position) changedAt.push(position.updatedAt)
-    if (changedAt.length === 0) return
+    this.isSimulating = false
+    this.bufferedTrades = []
 
-    let startTime =
-      Math.floor(
-        Math.max(lastProcessedAt, Math.min(...changedAt)) / MINUTE_MS
-      ) * MINUTE_MS
-
-    for (;;) {
-      const candles = await this.marketService.getMinuteCandlesSince(
-        symbol,
-        startTime
-      )
-      const { account: current, setAccount } = tradingStore.getState()
-      const next = replayCandles(
-        current,
-        symbol,
-        candles,
-        this.getLatestMarkPrices()
-      )
-
-      if (next !== current) setAccount(next)
-
-      const last = candles.at(-1)
-      const hasExposure =
-        next.positions[symbol] !== undefined ||
-        next.openOrders.some((order) => order.symbol === symbol)
-
-      if (!last || candles.length < MINUTE_CANDLES_PAGE_SIZE || !hasExposure) {
-        return
-      }
-
-      startTime = last.time * 1000 + MINUTE_MS
+    if (this.isSimulationQueued) {
+      this.isSimulationQueued = false
+      this.updateRun({ events })
+      this.prepareSimulation()
+      return
     }
+
+    this.hasUnreplayedGap = false
+
+    if (events.length === 0 && !run?.isVisible) {
+      this.dismissSimulation()
+      return
+    }
+
+    const before = this.balancesBeforeRun ?? account.balances
+
+    setRun({
+      status: 'done',
+      isVisible: true,
+      checkedUpTo: run?.checkedUpTo ?? 0,
+      events,
+      balances: CURRENCIES.filter(
+        (currency) => before[currency] !== account.balances[currency]
+      ).map((currency) => ({
+        currency,
+        before: before[currency],
+        after: account.balances[currency]
+      }))
+    })
   }
 
-  private scheduleCatchUpRetry(): void {
-    if (this.catchUpRetryTimer) return
+  private updateRun(changes: Partial<SimulationRun>): void {
+    const { run, setRun } = simulationStore.getState()
 
-    this.catchUpRetryTimer = setTimeout(() => {
-      this.catchUpRetryTimer = null
-      void this.catchUp()
-    }, CATCH_UP_RETRY_MS)
+    if (run) setRun({ ...run, ...changes })
+  }
+
+  private getSimulationStart(
+    account: TradingAccount,
+    lastProcessedAt: number
+  ): number {
+    return Math.max(
+      lastProcessedAt,
+      Math.min(
+        ...account.openOrders.map((order) => order.createdAt),
+        ...Object.values(account.positions).map(
+          (position) => position.updatedAt
+        )
+      )
+    )
   }
 
   // Held back until a gap is replayed, so a reload during or after a failed
@@ -343,23 +507,14 @@ export default class TradingService implements ITradingService {
     const { account, lastProcessedAt, setLastProcessedAt } =
       tradingStore.getState()
 
-    if (
-      account.openOrders.length === 0 &&
-      Object.keys(account.positions).length === 0
-    ) {
-      return
-    }
+    if (!hasExposure(account)) return
 
     if (time - lastProcessedAt < PROCESSED_SAVE_INTERVAL_MS) return
 
     setLastProcessedAt(time)
   }
 
-  // Waits for catch-up after a gap: a replay can close at the price the market
-  // actually passed through, where this could only use the price it's at now.
   private checkLiquidation(symbol: SymbolId, markPrice: number): void {
-    if (this.hasUnreplayedGap) return
-
     const { account, setAccount } = tradingStore.getState()
 
     if (!account.positions[symbol]) return

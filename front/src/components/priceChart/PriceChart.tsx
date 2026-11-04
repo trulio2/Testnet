@@ -266,7 +266,7 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: `${t(`components.chart.${order.side}`)} ${formatQty(order.qty)}`
+        title: `${order.market === 'spot' ? `${t('components.chart.spot')} ` : ''}${t(`components.chart.${order.side}`)} ${formatQty(order.qty)}`
       })
     )
 

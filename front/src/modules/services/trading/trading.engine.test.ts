@@ -1,24 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_DEPOSIT } from '@/utils'
 import type {
-  Candle,
+  MarkPrices,
   OrderBook,
   OrderRequest,
   SymbolId,
   TradeSide,
   TradingAccount,
   TradingAccountV3,
-  TradingAccountV4
+  TradingAccountV4,
+  TradingAccountV5
 } from '@/types'
 import {
   addDeposit,
   cancelOpenOrder,
   changeFeeRates,
   changeLeverage,
+  changeTradeMode,
   createAccount,
   getAccountSummary,
   getBookFillPrice,
   getLiquidationPrice,
+  getSpendable,
+  getSpotHoldingView,
   INITIAL_BALANCES,
   liquidateIfBreached,
   MAINTENANCE_MARGIN_RATE,
@@ -28,7 +32,7 @@ import {
   migrateAccountFromV2,
   migrateAccountFromV3,
   migrateAccountFromV4,
-  replayCandles,
+  migrateAccountFromV5,
   submitOrder,
   TAKER_FEE_RATE
 } from './trading.engine'
@@ -295,83 +299,6 @@ describe('matchRestingOrders', () => {
     )
 
     expect(account.fills.map((fill) => fill.price)).toEqual([96, 95])
-  })
-})
-
-describe('replayCandles', () => {
-  const candle = (time: number, low: number, high: number): Candle => ({
-    time,
-    open: low,
-    high,
-    low,
-    close: high,
-    volume: 1
-  })
-  // Placed at NOW (1000 ms), so a candle opening at 2 s starts after it.
-  const resting = (side: TradeSide, price: number) =>
-    place(createAccount(), {
-      symbol: 'BTCUSD',
-      side,
-      type: 'limit',
-      qty: 1,
-      price
-    }).account
-
-  it('fills an order a later candle crossed, at its limit, as a maker', () => {
-    const account = replayCandles(resting('buy', 95), 'BTCUSD', [
-      candle(2, 90, 100)
-    ])
-
-    expect(account.openOrders).toHaveLength(0)
-    expect(account.fills[0]).toMatchObject({
-      price: 95,
-      liquidity: 'maker',
-      time: 2000
-    })
-  })
-
-  it('fills sells on the candle high', () => {
-    const account = replayCandles(resting('sell', 105), 'BTCUSD', [
-      candle(2, 100, 105)
-    ])
-
-    expect(account.positions.BTCUSD?.qty).toBe(-1)
-  })
-
-  it('ignores a candle that opened before the order was placed', () => {
-    const account = resting('buy', 95)
-
-    expect(replayCandles(account, 'BTCUSD', [candle(0, 90, 100)])).toBe(account)
-  })
-
-  it('ignores a candle that opened as the order was placed', () => {
-    const account = resting('buy', 95)
-
-    expect(replayCandles(account, 'BTCUSD', [candle(1, 90, 100)])).toBe(account)
-  })
-
-  it('returns the same account when no candle crosses', () => {
-    const account = resting('buy', 95)
-
-    expect(
-      replayCandles(account, 'BTCUSD', [candle(2, 96, 100), candle(3, 97, 99)])
-    ).toBe(account)
-  })
-
-  it('does not fill an order twice across candles', () => {
-    const account = replayCandles(resting('buy', 95), 'BTCUSD', [
-      candle(2, 90, 100),
-      candle(3, 90, 100)
-    ])
-
-    expect(account.fills).toHaveLength(1)
-    expect(account.positions.BTCUSD?.qty).toBe(1)
-  })
-
-  it('leaves other symbols alone', () => {
-    const account = resting('buy', 95)
-
-    expect(replayCandles(account, 'USDBRL', [candle(2, 1, 1)])).toBe(account)
   })
 })
 
@@ -956,6 +883,1013 @@ describe('migrateAccountFromV4', () => {
   })
 })
 
+describe('migrateAccountFromV5', () => {
+  const v5 = (): TradingAccountV5 => {
+    const rest: Omit<TradingAccount, 'spot' | 'tradeMode'> &
+      Partial<TradingAccount> = { ...createAccount() }
+
+    delete rest.spot
+    delete rest.tradeMode
+
+    return {
+      ...rest,
+      openOrders: [
+        {
+          id: 9,
+          symbol: 'BTCUSD',
+          side: 'buy',
+          qty: 1,
+          price: 95,
+          createdAt: NOW
+        }
+      ],
+      fills: [
+        {
+          id: 8,
+          orderId: 7,
+          symbol: 'BTCUSD',
+          side: 'buy',
+          qty: 1,
+          price: 95,
+          liquidity: 'taker',
+          fee: 1,
+          realizedPnl: 0,
+          time: NOW
+        }
+      ]
+    }
+  }
+
+  it('marks existing orders and fills as margin', () => {
+    const migrated = migrateAccountFromV5(v5())
+
+    expect(migrated.openOrders[0].market).toBe('margin')
+    expect(migrated.fills[0].market).toBe('margin')
+  })
+
+  it('starts with no spot holdings, in margin mode', () => {
+    const migrated = migrateAccountFromV5(v5())
+
+    expect(migrated.spot).toEqual({})
+    expect(migrated.tradeMode).toEqual({ BTCUSD: 'margin', USDBRL: 'margin' })
+  })
+
+  it('keeps balances', () => {
+    expect(migrateAccountFromV5(v5()).balances).toEqual(v5().balances)
+  })
+})
+
+describe('spot', () => {
+  const spot = (
+    account: TradingAccount,
+    side: TradeSide,
+    qty: number,
+    price: number,
+    symbol: SymbolId = 'BTCUSD'
+  ) =>
+    submitOrder(account, {
+      request: { symbol, side, type: 'market', market: 'spot', qty },
+      book: bookAround(price, price, 1_000_000),
+      marks: { [symbol]: price },
+      time: NOW
+    })
+
+  const spotAt = (
+    account: TradingAccount,
+    side: TradeSide,
+    qty: number,
+    price: number,
+    symbol: SymbolId = 'BTCUSD'
+  ) => {
+    const result = spot(account, side, qty, price, symbol)
+
+    if (!result.ok) throw new Error(`rejected: ${result.reason}`)
+
+    return result.account
+  }
+
+  const restingSpot = (
+    account: TradingAccount,
+    side: TradeSide,
+    qty: number,
+    price: number
+  ) =>
+    place(account, {
+      symbol: 'BTCUSD',
+      side,
+      type: 'limit',
+      market: 'spot',
+      qty,
+      price
+    }).account
+
+  describe('buying', () => {
+    it('pays the cost and fee from the balance and adds to the holding', () => {
+      const account = spotAt(createAccount(), 'buy', 2, 100)
+
+      expect(account.spot.BTCUSD).toEqual({ qty: 2, avgCost: 100 })
+      expect(account.balances.USD).toBeCloseTo(
+        INITIAL_BALANCES.USD - 200 - 200 * TAKER_FEE_RATE
+      )
+    })
+
+    it('opens no position', () => {
+      const account = spotAt(createAccount(), 'buy', 2, 100)
+
+      expect(account.positions).toEqual({})
+      expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(0)
+    })
+
+    it('averages the cost when buying more', () => {
+      const account = spotAt(
+        spotAt(createAccount(), 'buy', 1, 100),
+        'buy',
+        3,
+        200
+      )
+
+      expect(account.spot.BTCUSD).toEqual({ qty: 4, avgCost: 175 })
+    })
+
+    it('marks the fill as spot', () => {
+      const account = spotAt(createAccount(), 'buy', 1, 100)
+
+      expect(account.fills[0]).toMatchObject({ market: 'spot', realizedPnl: 0 })
+    })
+
+    it('rejects a buy larger than the balance', () => {
+      expect(spot(createAccount(), 'buy', 1001, 100)).toEqual({
+        ok: false,
+        reason: 'insufficientFunds'
+      })
+    })
+
+    it('includes the fee', () => {
+      expect(spot(createAccount(), 'buy', 1000, 100)).toEqual({
+        ok: false,
+        reason: 'insufficientFunds'
+      })
+    })
+
+    it('ignores leverage', () => {
+      const raised = changeLeverage(createAccount(), 'BTCUSD', 50, {})
+
+      if (!raised.ok) throw new Error('rejected')
+
+      expect(spot(raised.account, 'buy', 1001, 100).ok).toBe(false)
+    })
+
+    it('does not spend profit that only exists on paper', () => {
+      const opened = fillAt(createAccount(), 'buy', 100, 100)
+      const result = submitOrder(opened, {
+        request: {
+          symbol: 'BTCUSD',
+          side: 'buy',
+          type: 'market',
+          market: 'spot',
+          qty: 1000
+        },
+        book: bookAround(100, 100, 1_000_000),
+        marks: { BTCUSD: 10_000 },
+        time: NOW
+      })
+
+      expect(result).toEqual({ ok: false, reason: 'insufficientFunds' })
+    })
+
+    it('does not spend margin that positions need', () => {
+      const opened = fillAt(createAccount(), 'buy', 900, 100)
+
+      expect(spot(opened, 'buy', 200, 100)).toEqual({
+        ok: false,
+        reason: 'insufficientFunds'
+      })
+    })
+
+    it('enforces the minimum order size', () => {
+      expect(spot(createAccount(), 'buy', 0.01, 100)).toEqual({
+        ok: false,
+        reason: 'belowMinNotional'
+      })
+    })
+  })
+
+  describe('selling', () => {
+    const holding = () => spotAt(createAccount(), 'buy', 2, 100)
+
+    it('returns the proceeds minus the fee and reduces the holding', () => {
+      const before = holding()
+      const account = spotAt(before, 'sell', 1, 150)
+
+      expect(account.spot.BTCUSD).toEqual({ qty: 1, avgCost: 100 })
+      expect(account.balances.USD).toBeCloseTo(
+        before.balances.USD + 150 - 150 * TAKER_FEE_RATE
+      )
+    })
+
+    it('records the profit against the average cost', () => {
+      expect(spotAt(holding(), 'sell', 1, 150).fills[0].realizedPnl).toBe(50)
+    })
+
+    it('removes the holding when all of it is sold', () => {
+      expect(spotAt(holding(), 'sell', 2, 150).spot.BTCUSD).toBeUndefined()
+    })
+
+    it('rejects selling with no holding', () => {
+      expect(spot(createAccount(), 'sell', 1, 100)).toEqual({
+        ok: false,
+        reason: 'insufficientSpotBalance'
+      })
+    })
+
+    it('rejects selling more than the holding', () => {
+      expect(spot(holding(), 'sell', 2.01, 100)).toEqual({
+        ok: false,
+        reason: 'insufficientSpotBalance'
+      })
+    })
+
+    it('counts open sells against what can be sold', () => {
+      const account = restingSpot(holding(), 'sell', 1.5, 200)
+
+      expect(spot(account, 'sell', 1, 150)).toEqual({
+        ok: false,
+        reason: 'insufficientSpotBalance'
+      })
+      expect(spot(account, 'sell', 0.5, 150).ok).toBe(true)
+    })
+
+    it('allows selling a leftover below the minimum order size', () => {
+      const small = spotAt(createAccount(), 'buy', 1, 100)
+      const left = spotAt(small, 'sell', 0.99, 100)
+
+      expect(left.spot.BTCUSD?.qty).toBe(0.01)
+      expect(spot(left, 'sell', 0.01, 100).ok).toBe(true)
+    })
+
+    it('still applies the minimum to part of a holding', () => {
+      expect(spot(holding(), 'sell', 0.01, 100)).toEqual({
+        ok: false,
+        reason: 'belowMinNotional'
+      })
+    })
+
+    it('keeps quantities free of float noise', () => {
+      const bought = spotAt(
+        spotAt(createAccount(), 'buy', 0.1, 100),
+        'buy',
+        0.2,
+        100
+      )
+
+      expect(bought.spot.BTCUSD?.qty).toBe(0.3)
+      expect(spotAt(bought, 'sell', 0.3, 100).spot.BTCUSD).toBeUndefined()
+    })
+  })
+
+  describe('separate from positions', () => {
+    it('leaves a short alone when buying spot', () => {
+      const short = fillAt(createAccount(), 'sell', 1, 100)
+      const account = spotAt(short, 'buy', 1, 100)
+
+      expect(account.positions.BTCUSD?.qty).toBe(-1)
+      expect(account.spot.BTCUSD?.qty).toBe(1)
+    })
+
+    it('leaves a long alone when selling spot', () => {
+      const long = fillAt(spotAt(createAccount(), 'buy', 2, 100), 'buy', 1, 100)
+      const account = spotAt(long, 'sell', 2, 100)
+
+      expect(account.positions.BTCUSD?.qty).toBe(1)
+      expect(account.spot.BTCUSD).toBeUndefined()
+    })
+
+    it('leaves spot alone when a position closes', () => {
+      const both = fillAt(spotAt(createAccount(), 'buy', 2, 100), 'buy', 1, 100)
+      const account = fillAt(both, 'sell', 1, 100)
+
+      expect(account.positions.BTCUSD).toBeUndefined()
+      expect(account.spot.BTCUSD?.qty).toBe(2)
+    })
+
+    it('cannot sell a position as spot', () => {
+      expect(
+        spot(fillAt(createAccount(), 'buy', 1, 100), 'sell', 1, 100)
+      ).toEqual({ ok: false, reason: 'insufficientSpotBalance' })
+    })
+
+    it('does not count holdings as equity', () => {
+      const account = spotAt(createAccount(), 'buy', 2, 100)
+      const { equity } = getAccountSummary(account, 'USD', { BTCUSD: 500 })
+
+      expect(equity).toBe(account.balances.USD)
+    })
+  })
+
+  describe('USD/BRL', () => {
+    it('pays in BRL and adds to the USD balance, with no holding', () => {
+      const account = spotAt(createAccount(), 'buy', 1000, 5, 'USDBRL')
+
+      expect(account.spot.USDBRL).toBeUndefined()
+      expect(account.balances.USD).toBe(INITIAL_BALANCES.USD + 1000)
+      expect(account.balances.BRL).toBeCloseTo(
+        INITIAL_BALANCES.BRL - 5000 - 5000 * TAKER_FEE_RATE
+      )
+    })
+
+    it('spends the USD balance and returns BRL minus the fee', () => {
+      const account = spotAt(createAccount(), 'sell', 1000, 6, 'USDBRL')
+
+      expect(account.balances.USD).toBe(INITIAL_BALANCES.USD - 1000)
+      expect(account.balances.BRL).toBeCloseTo(
+        INITIAL_BALANCES.BRL + 6000 - 6000 * TAKER_FEE_RATE
+      )
+    })
+
+    it('opens no position', () => {
+      const account = spotAt(createAccount(), 'buy', 1000, 5, 'USDBRL')
+
+      expect(account.positions).toEqual({})
+    })
+
+    it('records no profit, since that USD has no cost basis', () => {
+      const bought = spotAt(createAccount(), 'buy', 1000, 5, 'USDBRL')
+      const account = spotAt(bought, 'sell', 1000, 6, 'USDBRL')
+
+      expect(account.fills[0].realizedPnl).toBe(0)
+    })
+
+    it('lets bought USD pay for BTC', () => {
+      const start = {
+        ...createAccount(),
+        balances: { USD: 0, BRL: INITIAL_BALANCES.BRL }
+      }
+
+      expect(spot(start, 'buy', 1, 100).ok).toBe(false)
+
+      const funded = spotAt(start, 'buy', 500, 5, 'USDBRL')
+
+      expect(spotAt(funded, 'buy', 1, 100).spot.BTCUSD?.qty).toBe(1)
+    })
+
+    it('lets bought USD back a BTC/USD position', () => {
+      const start = {
+        ...createAccount(),
+        balances: { USD: 0, BRL: INITIAL_BALANCES.BRL }
+      }
+      const funded = spotAt(start, 'buy', 500, 5, 'USDBRL')
+
+      expect(fillAt(funded, 'buy', 1, 100).positions.BTCUSD?.qty).toBe(1)
+    })
+
+    it('rejects selling more USD than the balance', () => {
+      expect(
+        spot(createAccount(), 'sell', INITIAL_BALANCES.USD + 1, 5, 'USDBRL')
+      ).toEqual({ ok: false, reason: 'insufficientSpotBalance' })
+    })
+
+    it('adds a ledger entry per currency, so each balance adds up', () => {
+      const account = spotAt(createAccount(), 'buy', 1000, 5, 'USDBRL')
+
+      expect(account.ledger[0]).toMatchObject({
+        type: 'spotBuy',
+        currency: 'USD',
+        amount: 1000,
+        balance: INITIAL_BALANCES.USD + 1000,
+        symbol: 'USDBRL'
+      })
+      expect(account.ledger[1]).toMatchObject({
+        type: 'spotBuy',
+        currency: 'BRL',
+        symbol: 'USDBRL'
+      })
+
+      for (const currency of ['USD', 'BRL'] as const) {
+        const total = account.ledger
+          .filter((entry) => entry.currency === currency)
+          .reduce((sum, entry) => sum + entry.amount, 0)
+
+        expect(total).toBeCloseTo(account.balances[currency])
+      }
+    })
+
+    it('shows the USD balance as the holding', () => {
+      expect(getSpotHoldingView(createAccount(), 'USDBRL')).toMatchObject({
+        qty: INITIAL_BALANCES.USD,
+        availableQty: INITIAL_BALANCES.USD,
+        avgCost: 0,
+        unrealizedPnl: 0
+      })
+    })
+  })
+
+  it('shows a plain zero when resting sells hold the whole holding', () => {
+    const account = {
+      ...createAccount(),
+      spot: { BTCUSD: { qty: 0.3, avgCost: 100 } },
+      openOrders: [0.2, 0.1].map((qty, index) => ({
+        id: 50 + index,
+        market: 'spot' as const,
+        symbol: 'BTCUSD' as const,
+        side: 'sell' as const,
+        qty,
+        price: 200,
+        createdAt: 0
+      }))
+    }
+
+    expect(
+      Object.is(getSpotHoldingView(account, 'BTCUSD').availableQty, 0)
+    ).toBe(true)
+  })
+
+  describe('available USD', () => {
+    const available = (account: TradingAccount, marks: MarkPrices = {}) =>
+      getSpotHoldingView(account, 'USDBRL', marks).availableQty
+
+    const restingUsd = (
+      account: TradingAccount,
+      side: TradeSide,
+      qty: number,
+      price = side === 'sell' ? 6 : 4
+    ) =>
+      place(
+        account,
+        {
+          symbol: 'USDBRL',
+          side,
+          type: 'limit',
+          market: 'spot',
+          qty,
+          price
+        },
+        bookAround(5, 5, 1_000_000)
+      ).account
+
+    it('starts as the whole balance', () => {
+      expect(available(createAccount())).toBe(INITIAL_BALANCES.USD)
+    })
+
+    it('leaves out margin held by a position', () => {
+      const account = fillAt(createAccount(), 'buy', 500, 100)
+
+      expect(available(account)).toBeCloseTo(
+        INITIAL_BALANCES.USD - 50_000 - 50_000 * TAKER_FEE_RATE,
+        0
+      )
+    })
+
+    it('follows the position’s leverage', () => {
+      const raised = changeLeverage(createAccount(), 'BTCUSD', 10, {})
+
+      if (!raised.ok) throw new Error('rejected')
+
+      const account = fillAt(raised.account, 'buy', 500, 100)
+
+      expect(available(account)).toBeCloseTo(
+        INITIAL_BALANCES.USD - 5000 - 50_000 * TAKER_FEE_RATE,
+        0
+      )
+    })
+
+    it('shrinks with an unrealized loss', () => {
+      const account = fillAt(createAccount(), 'buy', 500, 100)
+
+      expect(available(account, { BTCUSD: 90 })).toBeLessThan(
+        available(account, { BTCUSD: 100 }) - 4999
+      )
+    })
+
+    it('does not grow with an unrealized profit', () => {
+      const account = fillAt(createAccount(), 'buy', 500, 100)
+      const atEntry = available(account, { BTCUSD: 100 })
+
+      // Paper profit can't be delivered, but the margin held stays held.
+      expect(available(account, { BTCUSD: 1000 })).toBeLessThanOrEqual(
+        account.balances.USD
+      )
+      expect(atEntry).toBeLessThan(account.balances.USD)
+    })
+
+    it('leaves out a resting USD sell', () => {
+      const account = restingUsd(createAccount(), 'sell', 30_000)
+
+      expect(available(account)).toBe(INITIAL_BALANCES.USD - 30_000)
+      expect(account.balances.USD).toBe(INITIAL_BALANCES.USD)
+    })
+
+    it('stops two resting sells spending the same USD', () => {
+      const account = restingUsd(createAccount(), 'sell', 80_000)
+
+      expect(spot(account, 'sell', 30_000, 5, 'USDBRL')).toEqual({
+        ok: false,
+        reason: 'insufficientSpotBalance'
+      })
+      expect(spot(account, 'sell', 20_000, 5, 'USDBRL').ok).toBe(true)
+    })
+
+    it('stops a BTC buy spending USD a resting sell holds', () => {
+      const account = restingUsd(createAccount(), 'sell', 99_000)
+
+      expect(spot(account, 'buy', 20, 100)).toEqual({
+        ok: false,
+        reason: 'insufficientFunds'
+      })
+      expect(spot(account, 'buy', 9, 100).ok).toBe(true)
+    })
+
+    it('stops a margin order using USD a resting sell holds', () => {
+      const account = restingUsd(createAccount(), 'sell', 99_000)
+      const submit = (qty: number) =>
+        submitOrder(account, {
+          request: { symbol: 'BTCUSD', side: 'buy', type: 'market', qty },
+          book: bookAround(100, 100, 1_000_000),
+          marks: { BTCUSD: 100 },
+          time: NOW
+        })
+
+      expect(submit(20)).toEqual({ ok: false, reason: 'insufficientMargin' })
+      expect(submit(9).ok).toBe(true)
+    })
+
+    it('stops a USD sell spending USD a resting BTC buy holds', () => {
+      const account = restingSpot(createAccount(), 'buy', 900, 95)
+
+      expect(available(account)).toBeCloseTo(
+        INITIAL_BALANCES.USD - 85_500 * (1 + MAKER_FEE_RATE),
+        0
+      )
+      expect(spot(account, 'sell', 20_000, 5, 'USDBRL')).toEqual({
+        ok: false,
+        reason: 'insufficientSpotBalance'
+      })
+    })
+
+    it('does not reserve USD for a resting USD buy', () => {
+      const account = restingUsd(createAccount(), 'buy', 1000)
+
+      expect(available(account)).toBe(INITIAL_BALANCES.USD)
+      expect(getAccountSummary(account, 'BRL', {}).usedMargin).toBeCloseTo(
+        4000 * (1 + MAKER_FEE_RATE)
+      )
+    })
+
+    it('does not change when a resting sell fills', () => {
+      const account = restingUsd(createAccount(), 'sell', 30_000)
+      const before = available(account)
+      const filled = matchRestingOrders(
+        account,
+        'USDBRL',
+        { low: 6, high: 6 },
+        NOW
+      )
+
+      expect(filled.balances.USD).toBe(INITIAL_BALANCES.USD - 30_000)
+      expect(available(filled)).toBe(before)
+      expect(getAccountSummary(filled, 'USD', {}).usedMargin).toBe(0)
+    })
+
+    it('adds to what is available when a resting buy fills', () => {
+      const filled = matchRestingOrders(
+        restingUsd(createAccount(), 'buy', 1000),
+        'USDBRL',
+        { low: 4, high: 4 },
+        NOW
+      )
+
+      expect(available(filled)).toBe(INITIAL_BALANCES.USD + 1000)
+    })
+
+    it('frees the USD when a resting sell is cancelled', () => {
+      const account = restingUsd(createAccount(), 'sell', 30_000)
+      const cancelled = cancelOpenOrder(account, account.openOrders[0].id)
+
+      expect(available(cancelled)).toBe(INITIAL_BALANCES.USD)
+    })
+
+    it('holds the same amount at any leverage', () => {
+      const raised = changeLeverage(createAccount(), 'BTCUSD', 50, {})
+
+      if (!raised.ok) throw new Error('rejected')
+
+      const account = restingUsd(raised.account, 'sell', 30_000)
+
+      expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(30_000)
+    })
+
+    it('rounds down to the order step, so the amount shown can be sold', () => {
+      const start = {
+        ...createAccount(),
+        balances: { USD: 1000.55, BRL: INITIAL_BALANCES.BRL }
+      }
+
+      expect(available(start)).toBe(1000.5)
+      expect(spot(start, 'sell', 1000.5, 5, 'USDBRL').ok).toBe(true)
+      expect(spot(start, 'sell', 1000.6, 5, 'USDBRL')).toEqual({
+        ok: false,
+        reason: 'insufficientSpotBalance'
+      })
+    })
+
+    it('does not lose a step to float noise', () => {
+      const start = {
+        ...createAccount(),
+        balances: { USD: 100_000.2 - 100_000.1, BRL: INITIAL_BALANCES.BRL }
+      }
+
+      expect(start.balances.USD).toBeLessThan(0.1)
+      expect(available(start)).toBe(0.1)
+    })
+
+    it('leaves an exact zero after selling everything', () => {
+      const start = {
+        ...createAccount(),
+        balances: { USD: 100_000.2 - 100_000.1, BRL: INITIAL_BALANCES.BRL }
+      }
+      const account = spotAt(start, 'sell', 0.1, 5, 'USDBRL')
+
+      expect(account.balances.USD).toBe(0)
+      expect(account.ledger[0].balance).toBe(0)
+    })
+
+    it('is zero when positions hold everything', () => {
+      const account = fillAt(createAccount(), 'buy', 900, 100)
+
+      expect(available(account, { BTCUSD: 1 })).toBe(0)
+    })
+
+    it('never leaves the balance short for what stays reserved', () => {
+      let account = restingUsd(createAccount(), 'sell', 40_000)
+
+      account = fillAt(account, 'buy', 300, 100)
+      account = spotAt(account, 'sell', available(account), 5, 'USDBRL')
+
+      const { walletBalance, usedMargin } = getAccountSummary(
+        account,
+        'USD',
+        {}
+      )
+
+      expect(available(account)).toBe(0)
+      expect(walletBalance).toBeGreaterThanOrEqual(usedMargin - 0.1)
+    })
+  })
+
+  describe('limit orders', () => {
+    it('sets aside the full cost and fee of a buy, whatever the leverage', () => {
+      const raised = changeLeverage(createAccount(), 'BTCUSD', 50, {})
+
+      if (!raised.ok) throw new Error('rejected')
+
+      const account = restingSpot(raised.account, 'buy', 1, 95)
+
+      expect(getAccountSummary(account, 'USD', {}).usedMargin).toBeCloseTo(
+        95 * (1 + MAKER_FEE_RATE)
+      )
+      expect(account.balances.USD).toBe(INITIAL_BALANCES.USD)
+    })
+
+    it('cannot spend the same money twice', () => {
+      const account = restingSpot(createAccount(), 'buy', 900, 95)
+
+      expect(spot(account, 'buy', 200, 100)).toEqual({
+        ok: false,
+        reason: 'insufficientFunds'
+      })
+    })
+
+    it('counts against what a margin order can use', () => {
+      const account = restingSpot(createAccount(), 'buy', 1000, 99)
+      const result = submitOrder(account, {
+        request: { symbol: 'BTCUSD', side: 'buy', type: 'market', qty: 100 },
+        book: bookAround(100, 100, 1_000_000),
+        marks: { BTCUSD: 100 },
+        time: NOW
+      })
+
+      expect(result).toEqual({ ok: false, reason: 'insufficientMargin' })
+    })
+
+    it('is not offset by a position', () => {
+      const short = fillAt(createAccount(), 'sell', 1, 100)
+      const account = restingSpot(short, 'buy', 1, 95)
+
+      expect(getAccountSummary(account, 'USD', {}).usedMargin).toBeCloseTo(
+        100 + 95 * (1 + MAKER_FEE_RATE)
+      )
+    })
+
+    it('sets aside nothing in money for a sell', () => {
+      const held = spotAt(createAccount(), 'buy', 1, 100)
+      const account = restingSpot(held, 'sell', 1, 200)
+
+      expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(0)
+    })
+
+    it('fills a resting buy at its price as a maker', () => {
+      const account = matchRestingOrders(
+        restingSpot(createAccount(), 'buy', 1, 95),
+        'BTCUSD',
+        { low: 95, high: 95 },
+        NOW
+      )
+
+      expect(account.spot.BTCUSD).toEqual({ qty: 1, avgCost: 95 })
+      expect(account.fills[0]).toMatchObject({
+        market: 'spot',
+        price: 95,
+        liquidity: 'maker'
+      })
+      expect(account.balances.USD).toBeCloseTo(
+        INITIAL_BALANCES.USD - 95 - 95 * MAKER_FEE_RATE
+      )
+      expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(0)
+    })
+
+    it('fills a resting sell', () => {
+      const held = spotAt(createAccount(), 'buy', 1, 100)
+      const account = matchRestingOrders(
+        restingSpot(held, 'sell', 1, 200),
+        'BTCUSD',
+        { low: 200, high: 200 },
+        NOW
+      )
+
+      expect(account.spot.BTCUSD).toBeUndefined()
+      expect(account.fills[0].realizedPnl).toBe(100)
+    })
+
+    it('takes the book when a limit crosses it', () => {
+      const { account, fill } = place(createAccount(), {
+        symbol: 'BTCUSD',
+        side: 'buy',
+        type: 'limit',
+        market: 'spot',
+        qty: 1,
+        price: 110
+      })
+
+      expect(fill).toMatchObject({ price: 101, liquidity: 'taker' })
+      expect(account.spot.BTCUSD?.avgCost).toBe(101)
+    })
+
+    it('frees what it set aside when cancelled', () => {
+      const resting = restingSpot(createAccount(), 'buy', 1, 95)
+      const account = cancelOpenOrder(resting, resting.openOrders[0].id)
+
+      expect(getAccountSummary(account, 'USD', {}).usedMargin).toBe(0)
+    })
+
+    it('frees coins when a sell is cancelled', () => {
+      const held = spotAt(createAccount(), 'buy', 1, 100)
+      const resting = restingSpot(held, 'sell', 1, 200)
+      const account = cancelOpenOrder(resting, resting.openOrders[0].id)
+
+      expect(getSpotHoldingView(account, 'BTCUSD').availableQty).toBe(1)
+    })
+  })
+
+  describe('with liquidation', () => {
+    const spotOrder = (
+      symbol: SymbolId,
+      side: TradeSide,
+      qty: number,
+      price: number
+    ) => ({
+      id: 50,
+      market: 'spot' as const,
+      symbol,
+      side,
+      qty,
+      price,
+      createdAt: 0
+    })
+
+    const leveraged = () => {
+      const start = {
+        ...createAccount(),
+        balances: { USD: 200, BRL: INITIAL_BALANCES.BRL },
+        spot: { BTCUSD: { qty: 3, avgCost: 50 } },
+        positions: {
+          BTCUSD: {
+            symbol: 'BTCUSD' as const,
+            qty: 1,
+            avgEntry: 1000,
+            updatedAt: 0
+          }
+        }
+      }
+
+      return start
+    }
+
+    it('keeps spot holdings', () => {
+      const account = liquidateIfBreached(leveraged(), 'BTCUSD', 1, {}, NOW)
+
+      expect(account.positions.BTCUSD).toBeUndefined()
+      expect(account.spot.BTCUSD).toEqual({ qty: 3, avgCost: 50 })
+    })
+
+    it('cancels spot buys, because the money set aside may be gone', () => {
+      const start = {
+        ...leveraged(),
+        openOrders: [spotOrder('BTCUSD', 'buy', 1, 50)]
+      }
+      const account = liquidateIfBreached(start, 'BTCUSD', 1, {}, NOW)
+
+      expect(account.openOrders).toEqual([])
+    })
+
+    it('cancels USD/BRL sells, because the USD they hold may be gone', () => {
+      const start = {
+        ...leveraged(),
+        openOrders: [spotOrder('USDBRL', 'sell', 100, 6)]
+      }
+      const account = liquidateIfBreached(start, 'BTCUSD', 1, {}, NOW)
+
+      expect(account.openOrders).toEqual([])
+    })
+
+    it('keeps USD/BRL buys, which only need BRL', () => {
+      const start = {
+        ...leveraged(),
+        openOrders: [spotOrder('USDBRL', 'buy', 100, 4)]
+      }
+      const account = liquidateIfBreached(start, 'BTCUSD', 1, {}, NOW)
+
+      expect(account.openOrders).toHaveLength(1)
+    })
+
+    it('keeps USD/BRL sells when BRL is what gets liquidated', () => {
+      const start = {
+        ...createAccount(),
+        balances: { USD: INITIAL_BALANCES.USD, BRL: 200 },
+        positions: {
+          USDBRL: {
+            symbol: 'USDBRL' as const,
+            qty: 1000,
+            avgEntry: 5,
+            updatedAt: 0
+          }
+        },
+        openOrders: [
+          spotOrder('USDBRL', 'sell', 100, 6),
+          spotOrder('USDBRL', 'buy', 100, 4)
+        ]
+      }
+      const account = liquidateIfBreached(start, 'USDBRL', 1, {}, NOW)
+
+      expect(account.positions.USDBRL).toBeUndefined()
+      expect(account.openOrders.map((order) => order.side)).toEqual(['sell'])
+    })
+
+    it('keeps spot sells, whose coins are untouched', () => {
+      const start = restingSpot(leveraged(), 'sell', 1, 5000)
+      const account = liquidateIfBreached(start, 'BTCUSD', 1, {}, NOW)
+
+      expect(account.openOrders).toHaveLength(1)
+      expect(account.openOrders[0]).toMatchObject({
+        market: 'spot',
+        side: 'sell'
+      })
+    })
+  })
+
+  describe('fees', () => {
+    it('credits a maker rebate', () => {
+      const rated = changeFeeRates(createAccount(), 'BTCUSD', {
+        maker: -0.001,
+        taker: 0.001
+      })
+
+      if (!rated.ok) throw new Error('rejected')
+
+      const account = matchRestingOrders(
+        restingSpot(rated.account, 'buy', 1, 100),
+        'BTCUSD',
+        { low: 100, high: 100 },
+        NOW
+      )
+
+      expect(account.fills[0].fee).toBeCloseTo(-0.1)
+      expect(account.balances.USD).toBeCloseTo(INITIAL_BALANCES.USD - 100 + 0.1)
+    })
+
+    it('uses each symbol’s own rates', () => {
+      const rated = changeFeeRates(createAccount(), 'BTCUSD', {
+        maker: 0,
+        taker: 0
+      })
+
+      if (!rated.ok) throw new Error('rejected')
+
+      const btc = spotAt(rated.account, 'buy', 1, 100)
+      const brl = spotAt(btc, 'buy', 100, 5, 'USDBRL')
+
+      expect(btc.fills[0].fee).toBe(0)
+      expect(brl.fills[0].fee).toBeCloseTo(500 * TAKER_FEE_RATE)
+    })
+  })
+
+  describe('ledger', () => {
+    it('records buys and sells with their own types', () => {
+      const bought = spotAt(createAccount(), 'buy', 1, 100)
+      const sold = spotAt(bought, 'sell', 1, 150)
+
+      expect(bought.ledger[0]).toMatchObject({
+        type: 'spotBuy',
+        currency: 'USD',
+        symbol: 'BTCUSD'
+      })
+      expect(bought.ledger[0].amount).toBeCloseTo(-100 - 100 * TAKER_FEE_RATE)
+      expect(sold.ledger[0].type).toBe('spotSell')
+      expect(sold.ledger[0].amount).toBeCloseTo(150 - 150 * TAKER_FEE_RATE)
+    })
+
+    it('keeps each balance equal to its ledger', () => {
+      let account = spotAt(createAccount(), 'buy', 2, 100)
+
+      account = spotAt(account, 'sell', 1, 150)
+      account = fillAt(account, 'buy', 1, 120)
+      account = spotAt(account, 'buy', 100, 5, 'USDBRL')
+      account = spotAt(account, 'sell', 50, 6, 'USDBRL')
+
+      for (const currency of ['USD', 'BRL'] as const) {
+        const total = account.ledger
+          .filter((entry) => entry.currency === currency)
+          .reduce((sum, entry) => sum + entry.amount, 0)
+
+        expect(total).toBeCloseTo(account.balances[currency])
+      }
+    })
+
+    it('gives every record its own id', () => {
+      const account = spotAt(
+        spotAt(createAccount(), 'buy', 1, 100),
+        'sell',
+        1,
+        100
+      )
+      const ids = account.ledger.map((entry) => entry.id)
+
+      expect(new Set(ids).size).toBe(ids.length)
+      expect(Math.max(...ids)).toBeLessThan(account.nextId)
+    })
+  })
+
+  describe('getSpotHoldingView', () => {
+    it('values a holding at the mark', () => {
+      const account = spotAt(createAccount(), 'buy', 2, 100)
+
+      expect(
+        getSpotHoldingView(account, 'BTCUSD', { BTCUSD: 150 })
+      ).toMatchObject({
+        qty: 2,
+        avgCost: 100,
+        availableQty: 2,
+        markPrice: 150,
+        value: 300,
+        unrealizedPnl: 100
+      })
+    })
+
+    it('shows no value without a mark', () => {
+      const account = spotAt(createAccount(), 'buy', 2, 100)
+      const view = getSpotHoldingView(account, 'BTCUSD')
+
+      expect(view.value).toBeUndefined()
+      expect(view.unrealizedPnl).toBe(0)
+    })
+
+    it('reports an empty holding', () => {
+      expect(getSpotHoldingView(createAccount(), 'BTCUSD')).toMatchObject({
+        qty: 0,
+        availableQty: 0
+      })
+    })
+  })
+
+  describe('getSpendable', () => {
+    it('is the whole balance on a fresh account', () => {
+      expect(getSpendable(createAccount(), 'USD', {})).toBe(
+        INITIAL_BALANCES.USD
+      )
+    })
+
+    it('never goes below zero', () => {
+      const opened = fillAt(createAccount(), 'buy', 900, 100)
+
+      expect(getSpendable(opened, 'USD', { BTCUSD: 1 })).toBe(0)
+    })
+  })
+
+  it('remembers the trade mode per symbol', () => {
+    const account = changeTradeMode(createAccount(), 'BTCUSD', 'spot')
+
+    expect(account.tradeMode).toEqual({ BTCUSD: 'spot', USDBRL: 'margin' })
+  })
+})
+
 describe('fee rates', () => {
   const withRates = (
     maker: number,
@@ -1374,15 +2308,6 @@ describe('liquidation', () => {
     }
   })
 
-  const candle = (time: number, open: number, low: number, high: number) => ({
-    time,
-    open,
-    low,
-    high,
-    close: open,
-    volume: 1
-  })
-
   describe('getLiquidationPrice', () => {
     it('is undefined without a position', () => {
       expect(getLiquidationPrice(createAccount(), 'BTCUSD', {})).toBeUndefined()
@@ -1497,6 +2422,7 @@ describe('liquidation', () => {
         openOrders: [
           {
             id: 90,
+            market: 'margin' as const,
             symbol: 'BTCUSD' as const,
             side: 'buy' as const,
             qty: 1,
@@ -1505,6 +2431,7 @@ describe('liquidation', () => {
           },
           {
             id: 91,
+            market: 'margin' as const,
             symbol: 'USDBRL' as const,
             side: 'buy' as const,
             qty: 100,
@@ -1622,81 +2549,6 @@ describe('liquidation', () => {
       const account = fillAt(funded.account, 'buy', 1, 100)
 
       expect(account.positions.BTCUSD?.qty).toBe(1)
-    })
-  })
-
-  describe('replayCandles', () => {
-    it('liquidates a long a later candle crossed, at the liquidation price', () => {
-      const start = withPosition(1, 100, 20)
-      const price = getLiquidationPrice(start, 'BTCUSD', {}) as number
-      const account = replayCandles(start, 'BTCUSD', [
-        candle(10, 90, 85, 95),
-        candle(11, 90, 70, 95)
-      ])
-
-      expect(account.positions.BTCUSD).toBeUndefined()
-      expect(account.fills[0].price).toBeCloseTo(price, 2)
-      expect(account.fills[0].time).toBe(11_000)
-    })
-
-    it('liquidates a short on the candle high', () => {
-      const start = withPosition(-1, 100, 20)
-      const price = getLiquidationPrice(start, 'BTCUSD', {}) as number
-      const account = replayCandles(start, 'BTCUSD', [
-        candle(10, 110, 105, 130)
-      ])
-
-      expect(account.fills[0].price).toBeCloseTo(price, 2)
-    })
-
-    it('uses the open when the market had already gone past', () => {
-      const account = replayCandles(withPosition(1, 100, 20), 'BTCUSD', [
-        candle(10, 60, 55, 65)
-      ])
-
-      expect(account.fills[0].price).toBe(60)
-    })
-
-    it('leaves a position the candles did not reach', () => {
-      const start = withPosition(1, 100, 20)
-
-      expect(replayCandles(start, 'BTCUSD', [candle(10, 90, 85, 95)])).toBe(
-        start
-      )
-    })
-
-    it('ignores a candle opened before the position last changed', () => {
-      const start = withPosition(1, 100, 20)
-
-      if (start.positions.BTCUSD) start.positions.BTCUSD.updatedAt = 10_000
-
-      expect(replayCandles(start, 'BTCUSD', [candle(10, 60, 55, 65)])).toBe(
-        start
-      )
-    })
-
-    it('stops after the liquidation', () => {
-      const account = replayCandles(withPosition(1, 100, 20), 'BTCUSD', [
-        candle(10, 60, 55, 65),
-        candle(11, 40, 35, 45)
-      ])
-
-      expect(account.fills).toHaveLength(1)
-    })
-
-    it('does not liquidate on the candle that opened or changed the position', () => {
-      const { account: resting } = place(createAccount(), {
-        symbol: 'BTCUSD',
-        side: 'buy',
-        type: 'limit',
-        qty: 1,
-        price: 95
-      })
-      const start = { ...resting, balances: { USD: 10, BRL: 0 } }
-      const account = replayCandles(start, 'BTCUSD', [candle(10, 95, 1, 95)])
-
-      expect(account.positions.BTCUSD?.qty).toBe(1)
-      expect(account.fills[0].isLiquidation).toBeUndefined()
     })
   })
 

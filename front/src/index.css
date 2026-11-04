@@ -405,6 +405,141 @@ h1.accent {
   margin: 16px 0;
 }
 
+.simulation-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(85vh, 720px);
+  box-sizing: border-box;
+  padding: 18px;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 8px;
+  background: var(--dash-panel-strong);
+  color: var(--dash-text);
+  font-size: 13px;
+  text-align: left;
+}
+
+.simulation-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.simulation-dialog::backdrop {
+  background: rgb(0 0 0 / 60%);
+}
+
+/* A quick check still blocks the page, but isn't worth flashing a window for. */
+.simulation-dialog.is-silent {
+  opacity: 0;
+}
+
+.simulation-dialog.is-silent::backdrop {
+  background: transparent;
+}
+
+.simulation-dialog h2,
+.simulation-dialog p {
+  margin: 0;
+}
+
+.simulation-dialog h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.simulation-dialog small {
+  display: block;
+  color: var(--dash-muted);
+  font-size: 12px;
+}
+
+.simulation-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.simulation-status .spinner {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  border-width: 2px;
+}
+
+.simulation-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.simulation-log li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--dash-border);
+}
+
+.simulation-log time {
+  color: var(--dash-muted);
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.simulation-balances {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 0;
+}
+
+.simulation-balances dt {
+  color: var(--dash-muted);
+  font-size: 12px;
+}
+
+.simulation-balances dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation-dialog button {
+  padding: 7px 14px;
+  border: 1px solid var(--dash-border-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dash-text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.simulation-dialog button:hover {
+  border-color: var(--dash-cyan);
+}
+
+.simulation-dialog button:focus-visible {
+  outline: 2px solid var(--dash-cyan);
+  outline-offset: 1px;
+}
+
+.simulation-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 480px) {
+  .simulation-log li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
+
 .spinner {
   width: 32px;
   height: 32px;

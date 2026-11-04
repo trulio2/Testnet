@@ -2,14 +2,21 @@ import {
   DepositForm,
   FeeSettings,
   FundsHistory,
+  SpotBalance,
   WalletBalance
 } from '@/components'
-import { useLocale, useTradingActions, useWallet } from '@/modules/services'
+import {
+  useLocale,
+  useSymbols,
+  useTradingActions,
+  useWallet
+} from '@/modules/services'
 import './Wallet.css'
 
 function Wallet() {
   const { t } = useLocale()
   const { currencies } = useWallet()
+  const { symbols } = useSymbols()
   const { resetAccount } = useTradingActions()
 
   const handleReset = () => {
@@ -32,6 +39,11 @@ function Wallet() {
           <WalletBalance key={currency} currency={currency} />
         ))}
         <DepositForm />
+        {symbols
+          .filter(({ base }) => !currencies.some((asset) => asset === base))
+          .map(({ id }) => (
+            <SpotBalance key={id} symbol={id} />
+          ))}
       </div>
       <FeeSettings />
       <FundsHistory />

@@ -10,6 +10,8 @@ import OrdersPanel from './ordersPanel/OrdersPanel'
 import PriceChart from './priceChart/PriceChart'
 import RecentTrades from './recentTrades/RecentTrades'
 import SessionNotice from './sessionNotice/SessionNotice'
+import SimulationDialog from './simulationDialog/SimulationDialog'
+import SpotBalance from './spotBalance/SpotBalance'
 import TickerBar from './tickerBar/TickerBar'
 import WalletBalance from './walletBalance/WalletBalance'
 
@@ -26,6 +28,8 @@ export {
   PriceChart,
   RecentTrades,
   SessionNotice,
+  SimulationDialog,
+  SpotBalance,
   TickerBar,
   WalletBalance
 }

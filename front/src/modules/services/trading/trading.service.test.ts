@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
-  Candle,
   IMarketService,
   MarketEventListener,
   Order,
+  SymbolId,
   Trade
 } from '@/types'
-import { MINUTE_CANDLES_PAGE_SIZE, SYMBOLS } from '@/utils'
+import { SYMBOLS } from '@/utils'
+import { createHistory, type PricePoint } from './trading.history.fixture'
 
 // The store persists to localStorage, which doesn't exist under Node.
 vi.hoisted(() => {
@@ -23,26 +24,19 @@ vi.hoisted(() => {
 
 const { createAccount } = await import('./trading.engine')
 const { tradingStore } = await import('./trading.store')
+const { simulationStore } = await import('./simulation.store')
 const { default: TradingService } = await import('./trading.service')
 
 const MINUTE = 60_000
 
 const order = (id: number, createdAt: number, price = 95): Order => ({
   id,
+  market: 'margin',
   symbol: 'BTCUSD',
   side: 'buy',
   qty: 1,
   price,
   createdAt
-})
-
-const candle = (minute: number, low = 100): Candle => ({
-  time: (minute * MINUTE) / 1000,
-  open: 100,
-  high: 110,
-  low,
-  close: 100,
-  volume: 1
 })
 
 const trade = (time: number, price = 100): Trade => ({
@@ -53,18 +47,18 @@ const trade = (time: number, price = 100): Trade => ({
   side: 'buy'
 })
 
-function setup() {
+function setup(points: Partial<Record<SymbolId, PricePoint[]>> = {}) {
   const listeners: MarketEventListener[] = []
-  const getMinuteCandlesSince =
-    vi.fn<(symbol: string, startTime: number) => Promise<Candle[]>>()
-
-  getMinuteCandlesSince.mockResolvedValue([])
-
+  const history = createHistory(points)
+  const getHistoryCandles = vi.fn(history.getHistoryCandles)
+  const getHistoryTrades = vi.fn(history.getHistoryTrades)
   const market = {
     getSymbols: () => Object.values(SYMBOLS),
     getMarketTime: () => Date.now(),
     getLatestBook: () => undefined,
-    getMinuteCandlesSince,
+    isLive: () => true,
+    getHistoryCandles,
+    getHistoryTrades,
     subscribeMarketEvents(listener: MarketEventListener) {
       listeners.push(listener)
 
@@ -75,12 +69,23 @@ function setup() {
 
   service.start()
 
+  const open = () => listeners.forEach((listener) => listener.onOpen())
+  const sendTrade = (value: Trade, symbol: SymbolId = 'BTCUSD') =>
+    listeners.forEach((listener) => listener.onTrade(symbol, value))
+
   return {
     service,
-    getMinuteCandlesSince,
-    open: () => listeners.forEach((listener) => listener.onOpen()),
-    sendTrade: (value: Trade) =>
-      listeners.forEach((listener) => listener.onTrade('BTCUSD', value)),
+    history,
+    getHistoryCandles,
+    getHistoryTrades,
+    open,
+    sendTrade,
+    // The stream opening, then the first trade that starts the simulation.
+    async reconnect(time = 30 * MINUTE) {
+      open()
+      sendTrade(trade(time))
+      await flush()
+    },
     sendBook: (bid: number, ask: number) =>
       listeners.forEach((listener) =>
         listener.onBook('BTCUSD', {
@@ -96,11 +101,13 @@ function seed(orders: Order[], lastProcessedAt = 0) {
     account: { ...createAccount(), openOrders: orders },
     lastProcessedAt
   })
+  simulationStore.setState({ run: null })
 }
 
+const run = () => simulationStore.getState().run
 const flush = () => vi.advanceTimersByTimeAsync(0)
 
-describe('catch-up', () => {
+describe('simulation', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -112,186 +119,375 @@ describe('catch-up', () => {
     vi.restoreAllMocks()
   })
 
+  const account = () => tradingStore.getState().account
+
   it('fills an order the market crossed while the stream was down', async () => {
-    const { getMinuteCandlesSince, open } = setup()
+    const { reconnect } = setup({ BTCUSD: [[22 * MINUTE, 90]] })
 
     seed([order(1, 10 * MINUTE)], 20 * MINUTE)
-    getMinuteCandlesSince.mockResolvedValueOnce([candle(21), candle(22, 90)])
+    await reconnect()
 
-    open()
-    await flush()
-
-    const { account } = tradingStore.getState()
-
-    expect(account.openOrders).toHaveLength(0)
-    expect(account.fills[0]).toMatchObject({
+    expect(account().openOrders).toHaveLength(0)
+    expect(account().fills[0]).toMatchObject({
       price: 95,
       liquidity: 'maker',
       time: 22 * MINUTE
     })
   })
 
-  it('starts from the last saved minute, not the order time', async () => {
-    const { getMinuteCandlesSince, open } = setup()
+  it('waits for a live trade before it starts', async () => {
+    const { getHistoryCandles, open } = setup()
 
-    seed([order(1, 10 * MINUTE)], 20 * MINUTE + 5_000)
-
+    seed([order(1, 10 * MINUTE)], 20 * MINUTE)
     open()
     await flush()
 
-    expect(getMinuteCandlesSince).toHaveBeenCalledWith('BTCUSD', 20 * MINUTE)
+    expect(getHistoryCandles).not.toHaveBeenCalled()
+    expect(run()?.status).toBe('running')
+    expect(run()?.isVisible).toBe(false)
+  })
+
+  it('starts from the saved time, not the order time', async () => {
+    const { reconnect } = setup({ BTCUSD: [[15 * MINUTE, 90]] })
+
+    seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+    await reconnect()
+
+    expect(account().openOrders).toHaveLength(1)
   })
 
   it('starts from the order when it is newer than the saved time', async () => {
-    const { getMinuteCandlesSince, open } = setup()
+    const { reconnect } = setup({ BTCUSD: [[22 * MINUTE, 90]] })
 
-    seed([order(1, 30 * MINUTE + 5_000)], 20 * MINUTE)
+    seed([order(1, 25 * MINUTE)], 20 * MINUTE)
+    await reconnect()
 
-    open()
-    await flush()
-
-    expect(getMinuteCandlesSince).toHaveBeenCalledWith('BTCUSD', 30 * MINUTE)
+    expect(account().openOrders).toHaveLength(1)
   })
 
-  it('makes no requests without open orders', async () => {
-    const { getMinuteCandlesSince, open } = setup()
+  it('makes no requests and shows nothing without open orders', async () => {
+    const { reconnect, getHistoryCandles, getHistoryTrades } = setup()
 
-    open()
-    await flush()
+    await reconnect()
 
-    expect(getMinuteCandlesSince).not.toHaveBeenCalled()
+    expect(getHistoryCandles).not.toHaveBeenCalled()
+    expect(getHistoryTrades).not.toHaveBeenCalled()
+    expect(run()).toBeNull()
   })
 
-  it('only requests symbols that have open orders', async () => {
-    const { getMinuteCandlesSince, open } = setup()
-
-    seed([order(1, 10 * MINUTE)])
-
-    open()
-    await flush()
-
-    expect(getMinuteCandlesSince).toHaveBeenCalledTimes(1)
-  })
-
-  it('pages through a long gap until a short page', async () => {
-    const { getMinuteCandlesSince, open } = setup()
-    const fullPage = Array.from({ length: MINUTE_CANDLES_PAGE_SIZE }, (_, i) =>
-      candle(100 + i)
-    )
-
-    seed([order(1, 10 * MINUTE)], 100 * MINUTE)
-    getMinuteCandlesSince
-      .mockResolvedValueOnce(fullPage)
-      .mockResolvedValueOnce([candle(1100)])
-
-    open()
-    await flush()
-
-    expect(getMinuteCandlesSince).toHaveBeenCalledTimes(2)
-    expect(getMinuteCandlesSince).toHaveBeenLastCalledWith(
-      'BTCUSD',
-      1100 * MINUTE
-    )
-  })
-
-  it('keeps paging when a filled order leaves a position to watch', async () => {
-    const { getMinuteCandlesSince, open } = setup()
-    const fullPage = Array.from({ length: MINUTE_CANDLES_PAGE_SIZE }, (_, i) =>
-      candle(100 + i, 90)
-    )
-
-    seed([order(1, 10 * MINUTE)], 100 * MINUTE)
-    getMinuteCandlesSince.mockResolvedValueOnce(fullPage)
-
-    open()
-    await flush()
-
-    expect(tradingStore.getState().account.positions.BTCUSD).toBeDefined()
-    expect(getMinuteCandlesSince).toHaveBeenCalledTimes(2)
-  })
-
-  it('stops paging once a cancelled order leaves nothing to watch', async () => {
-    const { getMinuteCandlesSince, open } = setup()
-    const fullPage = Array.from({ length: MINUTE_CANDLES_PAGE_SIZE }, (_, i) =>
-      candle(100 + i)
-    )
-    let resolve: (candles: Candle[]) => void = () => {}
-
-    seed([order(1, 10 * MINUTE)], 100 * MINUTE)
-    getMinuteCandlesSince.mockReturnValueOnce(
-      new Promise((done) => {
-        resolve = done
-      })
-    )
-
-    open()
-    await flush()
-    tradingStore.getState().setAccount(createAccount())
-    resolve(fullPage)
-    await flush()
-
-    expect(getMinuteCandlesSince).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps an order cancelled during the request cancelled', async () => {
-    const { getMinuteCandlesSince, open } = setup()
-    let resolve: (candles: Candle[]) => void = () => {}
+  it('only requests symbols that have something open', async () => {
+    const { reconnect, getHistoryCandles } = setup()
 
     seed([order(1, 10 * MINUTE)], 20 * MINUTE)
-    getMinuteCandlesSince.mockReturnValueOnce(
-      new Promise((done) => {
-        resolve = done
-      })
-    )
+    await reconnect()
 
-    open()
-    await flush()
-    tradingStore.getState().setAccount(createAccount())
-    resolve([candle(21, 90)])
-    await flush()
-
-    expect(tradingStore.getState().account.fills).toHaveLength(0)
+    expect(
+      getHistoryCandles.mock.calls.map(([symbol]) => symbol)
+    ).not.toContain('USDBRL')
   })
 
-  it('retries after a failed request and then fills', async () => {
-    const { getMinuteCandlesSince, open } = setup()
+  describe('while it runs', () => {
+    const holdRequests = (context: ReturnType<typeof setup>) => {
+      let release = () => {}
 
-    seed([order(1, 10 * MINUTE)], 20 * MINUTE)
-    getMinuteCandlesSince
-      .mockRejectedValueOnce(new Error('offline'))
-      .mockResolvedValueOnce([candle(21, 90)])
+      context.getHistoryCandles.mockImplementationOnce(
+        (symbol, interval, options) =>
+          new Promise((resolve) => {
+            release = () =>
+              resolve(
+                context.history.getHistoryCandles(symbol, interval, options)
+              )
+          })
+      )
 
-    open()
-    await flush()
+      return () => release()
+    }
 
-    expect(tradingStore.getState().account.openOrders).toHaveLength(1)
+    it('holds live trades, then applies them after the history', async () => {
+      const context = setup({ BTCUSD: [[22 * MINUTE, 100]] })
+      const release = holdRequests(context)
 
-    await vi.advanceTimersByTimeAsync(30_000)
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      context.open()
+      context.sendTrade(trade(30 * MINUTE))
+      await flush()
+      context.sendTrade(trade(30 * MINUTE + 100, 90))
 
-    expect(tradingStore.getState().account.openOrders).toHaveLength(0)
+      expect(account().openOrders).toHaveLength(1)
+
+      release()
+      await flush()
+
+      expect(account().openOrders).toHaveLength(0)
+      expect(account().fills[0].time).toBe(30 * MINUTE + 100)
+      expect(run()?.events).toHaveLength(1)
+      expect(tradingStore.getState().lastProcessedAt).toBe(30 * MINUTE + 100)
+    })
+
+    it('does not liquidate from the live book', async () => {
+      const context = setup()
+
+      holdRequests(context)
+      tradingStore.setState({
+        account: {
+          ...createAccount(),
+          balances: { USD: 20, BRL: 0 },
+          positions: {
+            BTCUSD: {
+              symbol: 'BTCUSD',
+              qty: 1,
+              avgEntry: 100,
+              updatedAt: 10 * MINUTE
+            }
+          }
+        }
+      })
+      await context.reconnect()
+      context.sendBook(79, 80)
+
+      expect(account().positions.BTCUSD).toBeDefined()
+    })
+
+    it('refuses new orders', async () => {
+      const context = setup()
+
+      holdRequests(context)
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      await context.reconnect()
+
+      expect(
+        context.service.placeOrder({
+          symbol: 'BTCUSD',
+          side: 'buy',
+          type: 'market',
+          qty: 1
+        })
+      ).toEqual({ ok: false, reason: 'marketUnavailable' })
+    })
+
+    it('saves nothing until the end', async () => {
+      const context = setup({
+        BTCUSD: [[22 * MINUTE, 90]]
+      })
+      let release = () => {}
+
+      context.getHistoryTrades.mockImplementationOnce(
+        (symbol, options) =>
+          new Promise((resolve) => {
+            release = () =>
+              resolve(context.history.getHistoryTrades(symbol, options))
+          })
+      )
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      await context.reconnect()
+
+      expect(account().openOrders).toHaveLength(1)
+      expect(tradingStore.getState().lastProcessedAt).toBe(20 * MINUTE)
+
+      release()
+      await flush()
+
+      expect(account().openOrders).toHaveLength(0)
+    })
+
+    it('runs once at a time, and again for a drop during the run', async () => {
+      const context = setup()
+      const release = holdRequests(context)
+
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      await context.reconnect()
+      context.open()
+
+      const calls = context.getHistoryCandles.mock.calls.length
+
+      await flush()
+      expect(context.getHistoryCandles.mock.calls.length).toBe(calls)
+
+      release()
+      await flush()
+      expect(run()?.status).toBe('running')
+
+      context.sendTrade(trade(40 * MINUTE))
+      await flush()
+
+      expect(context.getHistoryCandles.mock.calls.length).toBeGreaterThan(calls)
+      expect(run()?.status).toBe('done')
+      expect(tradingStore.getState().lastProcessedAt).toBe(40 * MINUTE)
+    })
   })
 
-  it('does not run two catch-ups at once, and reruns for a later drop', async () => {
-    const { getMinuteCandlesSince, open } = setup()
-    let resolve: (candles: Candle[]) => void = () => {}
+  describe('when requests fail', () => {
+    const fail = (context: ReturnType<typeof setup>) =>
+      context.getHistoryCandles.mockRejectedValueOnce(new Error('offline'))
 
-    seed([order(1, 10 * MINUTE)], 20 * MINUTE)
-    getMinuteCandlesSince.mockReturnValueOnce(
-      new Promise((done) => {
-        resolve = done
+    it('shows the failure and keeps trading paused', async () => {
+      const context = setup({ BTCUSD: [[22 * MINUTE, 90]] })
+
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      fail(context)
+      await context.reconnect()
+
+      expect(run()).toMatchObject({ status: 'failed', isVisible: true })
+
+      context.sendTrade(trade(31 * MINUTE, 90))
+
+      expect(account().openOrders).toHaveLength(1)
+    })
+
+    it('retries by itself and then fills', async () => {
+      const context = setup({ BTCUSD: [[22 * MINUTE, 90]] })
+
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      fail(context)
+      await context.reconnect()
+
+      await vi.advanceTimersByTimeAsync(30_000)
+      context.sendTrade(trade(31 * MINUTE))
+      await flush()
+
+      expect(account().openOrders).toHaveLength(0)
+      expect(run()?.status).toBe('done')
+    })
+
+    it('retries when asked', async () => {
+      const context = setup({ BTCUSD: [[22 * MINUTE, 90]] })
+
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      fail(context)
+      await context.reconnect()
+
+      context.service.retrySimulation()
+      context.sendTrade(trade(31 * MINUTE))
+      await flush()
+
+      expect(account().openOrders).toHaveLength(0)
+    })
+
+    it('keeps no log rows from the failed attempt', async () => {
+      const context = setup({ BTCUSD: [[22 * MINUTE, 90]] })
+
+      seed([order(1, 10 * MINUTE), order(2, 10 * MINUTE, 50)], 20 * MINUTE)
+      context.getHistoryCandles.mockImplementationOnce(
+        context.history.getHistoryCandles
+      )
+      context.getHistoryCandles.mockImplementationOnce(
+        context.history.getHistoryCandles
+      )
+      context.getHistoryCandles.mockImplementationOnce(
+        context.history.getHistoryCandles
+      )
+      await context.reconnect()
+
+      expect(run()?.events).toHaveLength(1)
+
+      context.service.dismissSimulation()
+      tradingStore.setState({
+        account: {
+          ...createAccount(),
+          openOrders: [order(1, 10 * MINUTE)]
+        },
+        lastProcessedAt: 20 * MINUTE
       })
-    )
+      context.getHistoryTrades.mockRejectedValueOnce(new Error('offline'))
+      await context.reconnect()
 
-    open()
-    open()
-    await flush()
+      expect(run()).toMatchObject({ status: 'failed', events: [] })
+    })
+  })
 
-    expect(getMinuteCandlesSince).toHaveBeenCalledTimes(1)
+  describe('the window', () => {
+    it('shows for a gap of a minute or more, even with nothing to report', async () => {
+      const { reconnect } = setup()
 
-    resolve([])
-    await flush()
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      await reconnect(21 * MINUTE)
 
-    expect(getMinuteCandlesSince).toHaveBeenCalledTimes(2)
+      expect(run()).toMatchObject({
+        status: 'done',
+        isVisible: true,
+        events: [],
+        balances: []
+      })
+    })
+
+    it('stays hidden for a quick reload with nothing to report', async () => {
+      const { reconnect } = setup()
+
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      await reconnect(20 * MINUTE + 5_000)
+
+      expect(run()).toBeNull()
+    })
+
+    it('shows for a quick reload when something happened', async () => {
+      const { reconnect } = setup({ BTCUSD: [[20 * MINUTE + 2_000, 90]] })
+
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      await reconnect(20 * MINUTE + 5_000)
+
+      expect(run()).toMatchObject({ status: 'done', isVisible: true })
+      expect(run()?.events).toHaveLength(1)
+    })
+
+    it('reports what happened to each balance', async () => {
+      const { reconnect } = setup({
+        USDBRL: [[22 * MINUTE, 6]]
+      })
+
+      seed(
+        [
+          {
+            ...order(1, 10 * MINUTE, 6),
+            symbol: 'USDBRL',
+            market: 'spot',
+            side: 'sell',
+            qty: 100
+          }
+        ],
+        20 * MINUTE
+      )
+
+      const { USD, BRL } = account().balances
+
+      await reconnect()
+
+      const balances = run()?.balances ?? []
+
+      expect(balances.map(({ currency }) => currency)).toEqual(['USD', 'BRL'])
+      expect(balances[0]).toEqual({
+        currency: 'USD',
+        before: USD,
+        after: USD - 100
+      })
+      expect(balances[1].before).toBe(BRL)
+      expect(balances[1].after).toBeCloseTo(BRL + 600 - 600 * 0.0002)
+    })
+
+    it('goes away when dismissed', async () => {
+      const { reconnect, service } = setup()
+
+      seed([order(1, 10 * MINUTE)], 20 * MINUTE)
+      await reconnect()
+      service.dismissSimulation()
+
+      expect(run()).toBeNull()
+    })
+
+    it('adds to the log when a later gap comes before it is closed', async () => {
+      const { reconnect } = setup({
+        BTCUSD: [
+          [22 * MINUTE, 90],
+          [35 * MINUTE, 40]
+        ]
+      })
+
+      seed([order(1, 10 * MINUTE), order(2, 10 * MINUTE, 50)], 20 * MINUTE)
+      await reconnect()
+      expect(run()?.events).toHaveLength(1)
+
+      await reconnect(40 * MINUTE)
+      expect(run()?.events.map(({ price }) => price)).toEqual([95, 50])
+    })
   })
 })
 
@@ -309,7 +505,7 @@ describe('saved processing time', () => {
 
   const lastProcessedAt = () => tradingStore.getState().lastProcessedAt
 
-  it('does not move before the first catch-up has run', () => {
+  it('does not move before the first simulation has run', () => {
     const { sendTrade } = setup()
 
     seed([order(1, 10 * MINUTE, 50)], 20 * MINUTE)
@@ -318,14 +514,12 @@ describe('saved processing time', () => {
     expect(lastProcessedAt()).toBe(20 * MINUTE)
   })
 
-  it('moves with trades after catch-up, at most every 5 seconds', async () => {
-    const { open, sendTrade } = setup()
+  it('moves with trades after the simulation, at most every 5 seconds', async () => {
+    const { reconnect, sendTrade } = setup()
 
     seed([order(1, 10 * MINUTE, 50)], 20 * MINUTE)
-    open()
-    await flush()
+    await reconnect()
 
-    sendTrade(trade(30 * MINUTE))
     expect(lastProcessedAt()).toBe(30 * MINUTE)
 
     sendTrade(trade(30 * MINUTE + 4_000))
@@ -345,31 +539,27 @@ describe('saved processing time', () => {
     expect(lastProcessedAt()).toBe(0)
   })
 
-  it('stays put while a failed catch-up is waiting to retry', async () => {
-    const { getMinuteCandlesSince, open, sendTrade } = setup()
+  it('stays put while a failed simulation is waiting to retry', async () => {
+    const { getHistoryCandles, reconnect, sendTrade } = setup()
 
     seed([order(1, 10 * MINUTE, 50)], 20 * MINUTE)
-    getMinuteCandlesSince.mockRejectedValueOnce(new Error('offline'))
+    getHistoryCandles.mockRejectedValueOnce(new Error('offline'))
 
-    open()
-    await flush()
-    sendTrade(trade(30 * MINUTE))
+    await reconnect()
+    sendTrade(trade(31 * MINUTE))
 
     expect(lastProcessedAt()).toBe(20 * MINUTE)
   })
 
   it('stops again after a reconnect until the new gap is replayed', async () => {
-    const { getMinuteCandlesSince, open, sendTrade } = setup()
+    const { getHistoryCandles, reconnect, sendTrade } = setup()
 
     seed([order(1, 10 * MINUTE, 50)], 20 * MINUTE)
-    open()
-    await flush()
-    sendTrade(trade(30 * MINUTE))
+    await reconnect()
 
-    getMinuteCandlesSince.mockReturnValueOnce(new Promise(() => {}))
-    open()
-    await flush()
-    sendTrade(trade(40 * MINUTE))
+    getHistoryCandles.mockReturnValueOnce(new Promise(() => {}))
+    await reconnect(40 * MINUTE)
+    sendTrade(trade(50 * MINUTE))
 
     expect(lastProcessedAt()).toBe(30 * MINUTE)
   })
@@ -403,11 +593,10 @@ describe('liquidation', () => {
   const account = () => tradingStore.getState().account
 
   it('closes the position when the book mid reaches the price', async () => {
-    const { open, sendBook } = setup()
+    const { reconnect, sendBook } = setup()
 
     seedPosition()
-    open()
-    await flush()
+    await reconnect()
 
     sendBook(90, 91)
     expect(account().positions.BTCUSD).toBeDefined()
@@ -422,75 +611,45 @@ describe('liquidation', () => {
   })
 
   it('ignores a trade print that never moves the book', async () => {
-    const { open, sendTrade } = setup()
+    const { reconnect, sendTrade } = setup()
 
     seedPosition()
-    open()
-    await flush()
+    await reconnect()
     sendTrade(trade(30 * MINUTE, 50))
 
     expect(account().positions.BTCUSD).toBeDefined()
   })
 
-  it('waits for catch-up before liquidating from the live book', async () => {
-    const { open, sendBook, getMinuteCandlesSince } = setup()
-
-    seedPosition()
-    getMinuteCandlesSince.mockReturnValueOnce(new Promise(() => {}))
-    open()
-    await flush()
-    sendBook(79, 80)
-
-    expect(account().positions.BTCUSD).toBeDefined()
-  })
-
-  it('catches up on a position with no open orders', async () => {
-    const { open, getMinuteCandlesSince } = setup()
+  it('replays a position with no open orders', async () => {
+    const { reconnect } = setup({
+      BTCUSD: [
+        [21 * MINUTE, 90],
+        [21 * MINUTE + 1_000, 70]
+      ]
+    })
 
     seedPosition(10 * MINUTE, 20 * MINUTE)
-    getMinuteCandlesSince.mockResolvedValueOnce([
-      { ...candle(21), open: 90, low: 70 }
-    ])
-    open()
-    await flush()
+    await reconnect()
 
-    expect(getMinuteCandlesSince).toHaveBeenCalledWith('BTCUSD', 20 * MINUTE)
     expect(account().positions.BTCUSD).toBeUndefined()
-    expect(account().fills[0].time).toBe(21 * MINUTE)
+    expect(account().fills[0].time).toBe(21 * MINUTE + 1_000)
     expect(account().fills[0].price).toBeCloseTo(80 / 0.995, 2)
   })
 
   it('starts from the position when it is newer than the saved time', async () => {
-    const { open, getMinuteCandlesSince } = setup()
+    const { reconnect } = setup({ BTCUSD: [[25 * MINUTE, 70]] })
 
     seedPosition(30 * MINUTE + 5_000, 20 * MINUTE)
-    open()
-    await flush()
+    await reconnect(31 * MINUTE)
 
-    expect(getMinuteCandlesSince).toHaveBeenCalledWith('BTCUSD', 30 * MINUTE)
-  })
-
-  it('stops paging once the position is gone', async () => {
-    const { open, getMinuteCandlesSince } = setup()
-    const fullPage = Array.from({ length: MINUTE_CANDLES_PAGE_SIZE }, (_, i) =>
-      candle(100 + i, 50)
-    )
-
-    seedPosition(10 * MINUTE, 100 * MINUTE)
-    getMinuteCandlesSince.mockResolvedValueOnce(fullPage)
-    open()
-    await flush()
-
-    expect(getMinuteCandlesSince).toHaveBeenCalledTimes(1)
+    expect(account().positions.BTCUSD).toBeDefined()
   })
 
   it('moves the saved time for a position without open orders', async () => {
-    const { open, sendTrade } = setup()
+    const { reconnect } = setup()
 
     seedPosition(10 * MINUTE, 20 * MINUTE)
-    open()
-    await flush()
-    sendTrade(trade(30 * MINUTE))
+    await reconnect()
 
     expect(tradingStore.getState().lastProcessedAt).toBe(30 * MINUTE)
   })
@@ -546,5 +705,87 @@ describe('fee rates', () => {
 
     expect(account.balances.USD).toBe(createAccount().balances.USD)
     expect(account.feeRates.BTCUSD).toEqual({ maker: 0.001, taker: 0.002 })
+  })
+})
+
+describe('spot', () => {
+  const book = {
+    bids: [{ price: 100, qty: 1000 }],
+    asks: [{ price: 100, qty: 1000 }]
+  }
+
+  const setupSpot = () => {
+    const context = setup()
+    const market = context.service as unknown as {
+      marketService: IMarketService
+    }
+
+    market.marketService.isLive = () => true
+    market.marketService.getLatestBook = () => book
+    context.open()
+
+    return context
+  }
+
+  beforeEach(() => {
+    seed([])
+  })
+
+  const account = () => tradingStore.getState().account
+
+  it('sells only what open spot sells have not set aside', () => {
+    const { service } = setupSpot()
+
+    service.placeOrder({
+      symbol: 'BTCUSD',
+      side: 'buy',
+      type: 'market',
+      market: 'spot',
+      qty: 3
+    })
+    service.placeOrder({
+      symbol: 'BTCUSD',
+      side: 'sell',
+      type: 'limit',
+      market: 'spot',
+      qty: 1,
+      price: 200
+    })
+    service.sellSpotHolding('BTCUSD')
+
+    expect(account().spot.BTCUSD?.qty).toBe(1)
+    expect(account().openOrders).toHaveLength(1)
+  })
+
+  it('does nothing when there is nothing to sell', () => {
+    const { service } = setupSpot()
+
+    expect(service.sellSpotHolding('BTCUSD')).toEqual({ ok: true })
+    expect(account().fills).toHaveLength(0)
+  })
+
+  it('remembers the trade mode per symbol', () => {
+    const { service } = setupSpot()
+
+    service.setTradeMode('USDBRL', 'spot')
+
+    expect(account().tradeMode).toEqual({ BTCUSD: 'margin', USDBRL: 'spot' })
+  })
+
+  it('clears spot holdings and the mode on an account reset', () => {
+    const { service } = setupSpot()
+
+    service.setTradeMode('BTCUSD', 'spot')
+    service.placeOrder({
+      symbol: 'BTCUSD',
+      side: 'buy',
+      type: 'market',
+      market: 'spot',
+      qty: 1
+    })
+    service.resetAccount()
+
+    expect(account().spot).toEqual({})
+    expect(account().tradeMode.BTCUSD).toBe('margin')
   })
 })

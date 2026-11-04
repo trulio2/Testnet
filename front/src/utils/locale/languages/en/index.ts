@@ -6,10 +6,10 @@ export const en: ITranslations = {
     wallet: {
       title: 'Wallet',
       description:
-        'Simulated funds for testing. USD backs BTC/USD and BRL backs USD/BRL.',
+        'Simulated funds for testing. USD backs BTC/USD and BRL backs USD/BRL. USD bought or sold on USD/BRL spot uses this same USD balance.',
       reset: 'Reset account',
       resetConfirm:
-        'Reset the account? Balances return to their starting amounts, and positions, open orders, fills and funds history are cleared.'
+        'Reset the account? Balances return to their starting amounts, and positions, spot holdings, open orders, fills and funds history are cleared.'
     },
     changelog: {}
   },
@@ -38,7 +38,8 @@ export const en: ITranslations = {
       buy: 'Buy',
       sell: 'Sell',
       entry: 'Entry',
-      liquidation: 'Liq.'
+      liquidation: 'Liq.',
+      spot: 'Spot'
     },
     orderForm: {
       title: 'Order',
@@ -48,11 +49,17 @@ export const en: ITranslations = {
       size: 'Size ({unit})',
       price: 'Price ({unit})',
       marketNote: 'Fills now at the best available price.',
+      mode: 'Mode',
+      spot: 'Spot',
+      canSpend: 'Can spend ({asset})',
+      spotBalance: '{asset} balance',
+      canSell: 'Can sell ({asset})',
+      buySpot: 'Buy',
+      sellSpot: 'Sell',
       orderValue: 'Order value',
       margin: 'Margin',
       buyingPower: 'Buying power',
       fees: 'Maker / taker fee',
-      leverage: 'Leverage',
       leverageRejected:
         'Not enough available {quote} for {leverage}x. Add funds or reduce your position.',
       buy: 'Buy / Long',
@@ -65,6 +72,9 @@ export const en: ITranslations = {
         belowMinNotional: 'Order value must be at least {min} {quote}.',
         insufficientMargin:
           'Not enough available {quote}. Add funds in your wallet or raise your leverage.',
+        insufficientFunds:
+          'Not enough available {quote}. Add funds in your wallet.',
+        insufficientSpotBalance: 'You can only sell up to {available} {base}.',
         marketUnavailable: 'Market data is unavailable right now.'
       }
     },
@@ -188,6 +198,8 @@ export const en: ITranslations = {
       trade: 'Trade',
       liquidation: 'Liquidation',
       lossCovered: 'Loss covered',
+      spotBuy: 'Spot buy',
+      spotSell: 'Spot sell',
       empty: 'No entries yet.'
     },
     liquidation: {
@@ -195,12 +207,43 @@ export const en: ITranslations = {
         'Your {side} {symbol} position of {qty} was liquidated at {price} {quote}. Your open {quote} orders were cancelled.',
       dismiss: 'Dismiss'
     },
+    simulation: {
+      title: 'While you were away',
+      running: 'Checking what the market did…',
+      checkedUpTo: 'Checked up to {time} UTC',
+      failed:
+        'Could not load market data. Trading stays paused and this will try again shortly.',
+      retry: 'Retry',
+      nothingHappened: 'No orders filled and nothing was liquidated.',
+      fill: '{market} {side} of {qty} {base} on {symbol} filled at {price} {quote}.',
+      cancelled: 'Open orders cancelled: {count}.',
+      estimated:
+        'Timing estimated: detailed market data is no longer available.',
+      close: 'Close'
+    },
     session: {
       title: 'Testnet is open in another tab',
       description:
         'Your account runs in one tab at a time. This tab takes over when the other one closes.'
     },
+    spotBalance: {
+      title: 'Spot {asset}',
+      boughtOn: 'Bought on {symbol}',
+      available: 'Available to sell',
+      avgCost: 'Average cost',
+      value: 'Value',
+      unrealizedPnl: 'Unrealized PnL'
+    },
     ordersPanel: {
+      spot: 'Spot',
+      spotEmpty: 'No spot holdings.',
+      margin: 'Margin',
+      market: 'Market',
+      balance: 'Balance',
+      available: 'Available',
+      avgCost: 'Avg. cost',
+      value: 'Value',
+      sellAll: 'Sell all',
       positions: 'Positions',
       orders: 'Open orders',
       fills: 'Fills',

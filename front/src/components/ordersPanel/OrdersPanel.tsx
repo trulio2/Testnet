@@ -4,13 +4,14 @@ import {
   useLocale,
   useOpenOrders,
   usePositions,
+  useSpotHoldings,
   useSymbol,
   useTradingActions,
   useMoneyFormat
 } from '@/modules/services'
-import type { Fill, Order, PositionView } from '@/types'
+import type { Fill, Order, PositionView, SpotHoldingView } from '@/types'
 
-type PanelTab = 'positions' | 'orders' | 'fills'
+type PanelTab = 'positions' | 'spot' | 'orders' | 'fills'
 
 function getPnlClass(value: number) {
   if (value === 0) return undefined
@@ -59,6 +60,45 @@ function PositionRow({ position }: { position: PositionView }) {
   )
 }
 
+function SpotRow({ holding }: { holding: SpotHoldingView }) {
+  const { t } = useLocale()
+  const { config, formatPrice, formatQty } = useSymbol(holding.symbol)
+  const { formatMoney, formatSignedMoney } = useMoneyFormat()
+  const { sellSpotHolding } = useTradingActions()
+
+  return (
+    <tr>
+      <td>{config.label}</td>
+      <td>
+        {formatQty(holding.qty)} {config.base}
+      </td>
+      <td>{formatQty(holding.availableQty)}</td>
+      <td>{formatPrice(holding.avgCost)}</td>
+      <td>
+        {holding.markPrice === undefined ? '—' : formatPrice(holding.markPrice)}
+      </td>
+      <td>
+        {holding.value === undefined
+          ? '—'
+          : `${formatMoney(holding.value)} ${config.quote}`}
+      </td>
+      <td className={getPnlClass(holding.unrealizedPnl)}>
+        {formatSignedMoney(holding.unrealizedPnl)} {config.quote}
+      </td>
+      <td>
+        <button
+          type="button"
+          className="panel-action"
+          disabled={holding.availableQty <= 0}
+          onClick={() => sellSpotHolding(holding.symbol)}
+        >
+          {t('components.ordersPanel.sellAll')}
+        </button>
+      </td>
+    </tr>
+  )
+}
+
 function OrderRow({ order }: { order: Order }) {
   const { t } = useLocale()
   const { config, formatPrice, formatQty, formatTime } = useSymbol(order.symbol)
@@ -67,6 +107,7 @@ function OrderRow({ order }: { order: Order }) {
   return (
     <tr>
       <td>{config.label}</td>
+      <td>{t(`components.ordersPanel.${order.market}`)}</td>
       <td className={order.side === 'buy' ? 'pnl-up' : 'pnl-down'}>
         {t(`components.ordersPanel.${order.side}`)}
       </td>
@@ -95,6 +136,7 @@ function FillRow({ fill }: { fill: Fill }) {
     <tr>
       <td>{formatTime(fill.time)}</td>
       <td>{config.label}</td>
+      <td>{t(`components.ordersPanel.${fill.market}`)}</td>
       <td className={fill.side === 'buy' ? 'pnl-up' : 'pnl-down'}>
         {t(`components.ordersPanel.${fill.side}`)}
       </td>
@@ -119,15 +161,17 @@ export default function OrdersPanel() {
   const { t } = useLocale()
   const [tab, setTab] = useState<PanelTab>('positions')
   const positions = usePositions()
+  const spotHoldings = useSpotHoldings()
   const orders = useOpenOrders()
   const fills = useFills()
 
   const counts: Record<PanelTab, number> = {
     positions: positions.length,
+    spot: spotHoldings.length,
     orders: orders.length,
     fills: fills.length
   }
-  const tabs: PanelTab[] = ['positions', 'orders', 'fills']
+  const tabs: PanelTab[] = ['positions', 'spot', 'orders', 'fills']
   const label = (key: string) => t(`components.ordersPanel.${key}`)
 
   return (
@@ -172,11 +216,33 @@ export default function OrdersPanel() {
                 </tbody>
               </>
             )}
+            {tab === 'spot' && (
+              <>
+                <thead>
+                  <tr>
+                    <th>{label('symbol')}</th>
+                    <th>{label('balance')}</th>
+                    <th>{label('available')}</th>
+                    <th>{label('avgCost')}</th>
+                    <th>{label('mark')}</th>
+                    <th>{label('value')}</th>
+                    <th>{label('unrealizedPnl')}</th>
+                    <th aria-label={label('sellAll')} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {spotHoldings.map((holding) => (
+                    <SpotRow key={holding.symbol} holding={holding} />
+                  ))}
+                </tbody>
+              </>
+            )}
             {tab === 'orders' && (
               <>
                 <thead>
                   <tr>
                     <th>{label('symbol')}</th>
+                    <th>{label('market')}</th>
                     <th>{label('side')}</th>
                     <th>{label('size')}</th>
                     <th>{label('price')}</th>
@@ -197,6 +263,7 @@ export default function OrdersPanel() {
                   <tr>
                     <th>{label('time')}</th>
                     <th>{label('symbol')}</th>
+                    <th>{label('market')}</th>
                     <th>{label('side')}</th>
                     <th>{label('size')}</th>
                     <th>{label('price')}</th>

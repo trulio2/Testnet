@@ -1,6 +1,5 @@
 import type {
   AccountSummary,
-  Candle,
   Currency,
   DepositResult,
   FeeRates,
@@ -13,17 +12,23 @@ import type {
   MarkPrices,
   Order,
   OrderBookLevel,
+  OrderRejection,
   OrderResult,
   OrderSubmission,
   Position,
   PriceCrossing,
+  PriceMove,
+  SimulationEvent,
+  SpotHoldingView,
   SymbolId,
+  TradeMarket,
   TradeSide,
   TradingAccount,
   TradingAccountV1,
   TradingAccountV2,
   TradingAccountV3,
-  TradingAccountV4
+  TradingAccountV4,
+  TradingAccountV5
 } from '@/types'
 import {
   CURRENCIES,
@@ -52,6 +57,10 @@ const MAX_LEDGER_ENTRIES = 500
 const MAX_LIQUIDATION_NOTICES = 20
 const MONEY_DECIMALS = 2
 const DEFAULT_LEVERAGE = { BTCUSD: 1, USDBRL: 1 }
+const DEFAULT_TRADE_MODE: Record<SymbolId, TradeMarket> = {
+  BTCUSD: 'margin',
+  USDBRL: 'margin'
+}
 
 function createInitialLedger(
   balances: Record<Currency, number>,
@@ -82,6 +91,8 @@ export function createAccount(time = 0): TradingAccount {
     liquidationNotices: [],
     leverage: { ...DEFAULT_LEVERAGE },
     feeRates: createDefaultFeeRates(),
+    spot: {},
+    tradeMode: { ...DEFAULT_TRADE_MODE },
     nextId: CURRENCIES.length + 1
   }
 }
@@ -135,15 +146,35 @@ export function migrateAccountFromV3(
 
 export function migrateAccountFromV4(
   account: TradingAccountV4
-): TradingAccount {
+): TradingAccountV5 {
   return { ...account, feeRates: createDefaultFeeRates() }
 }
+
+// Everything traded before spot existed was margin.
+export function migrateAccountFromV5(
+  account: TradingAccountV5
+): TradingAccount {
+  return {
+    ...account,
+    openOrders: account.openOrders.map((order) => ({
+      ...order,
+      market: 'margin'
+    })),
+    fills: account.fills.map((fill) => ({ ...fill, market: 'margin' })),
+    spot: {},
+    tradeMode: { ...DEFAULT_TRADE_MODE }
+  }
+}
+
+const BALANCE_DUST = 1e-8
 
 function appendLedgerEntry(
   account: TradingAccount,
   entry: Omit<LedgerEntry, 'id' | 'balance'>
 ): { account: TradingAccount; entry: LedgerEntry } {
-  const balance = account.balances[entry.currency] + entry.amount
+  const sum = account.balances[entry.currency] + entry.amount
+  // Spending a whole balance can leave float noise, which would show as "-0.00".
+  const balance = Math.abs(sum) < BALANCE_DUST ? 0 : sum
   const created = { ...entry, id: account.nextId, balance }
 
   return {
@@ -222,7 +253,7 @@ function getSymbolMargin(
   let closableBySells = Math.max(positionQty, 0)
 
   for (const order of orders) {
-    if (order.symbol !== symbol) continue
+    if (order.symbol !== symbol || order.market !== 'margin') continue
 
     if (order.side === 'buy') {
       const closing = Math.min(order.qty, closableByBuys)
@@ -240,10 +271,35 @@ function getSymbolMargin(
   return Math.max(longValue, shortValue) / leverage
 }
 
-function getUsedMargin(
-  currency: Currency,
-  { positions, openOrders, leverage }: TradingAccount
-) {
+// A base that is itself a wallet currency, as USD is on USD/BRL, settles into that
+// balance. Any other base, such as BTC, is kept as a spot holding.
+function getBaseCurrency(symbol: SymbolId): Currency | undefined {
+  return CURRENCIES.find((currency) => currency === SYMBOLS[symbol].base)
+}
+
+// What resting spot orders have set aside in a currency, with no leverage: buys
+// hold their full cost and fee, and sells of a currency hold what they'll deliver.
+function getSpotReservation(currency: Currency, account: TradingAccount) {
+  return account.openOrders.reduce((total, order) => {
+    if (order.market !== 'spot') return total
+
+    if (order.side === 'sell') {
+      return getBaseCurrency(order.symbol) === currency
+        ? total + order.qty
+        : total
+    }
+
+    if (SYMBOLS[order.symbol].quote !== currency) return total
+
+    const makerRate = Math.max(account.feeRates[order.symbol].maker, 0)
+
+    return total + order.qty * order.price * (1 + makerRate)
+  }, 0)
+}
+
+function getUsedMargin(currency: Currency, account: TradingAccount) {
+  const { positions, openOrders, leverage } = account
+
   return (Object.keys(SYMBOLS) as SymbolId[])
     .filter((symbol) => SYMBOLS[symbol].quote === currency)
     .reduce(
@@ -255,7 +311,7 @@ function getUsedMargin(
           openOrders,
           leverage[symbol]
         ),
-      0
+      getSpotReservation(currency, account)
     )
 }
 
@@ -291,18 +347,194 @@ export function getAccountSummary(
   }
 }
 
+// Spot buys can only spend real money: never more than the balance, and never
+// profit that only exists on paper or margin other positions and orders need.
+export function getSpendable(
+  account: TradingAccount,
+  currency: Currency,
+  marks: MarkPrices
+): number {
+  const { availableMargin, walletBalance } = getAccountSummary(
+    account,
+    currency,
+    marks
+  )
+  const free = walletBalance - getSpotReservation(currency, account)
+
+  return Math.max(Math.min(availableMargin, free), 0)
+}
+
+// What can still be sold once open spot sells have set theirs aside. Selling a
+// currency spends it, so it follows the same limit as anything else using that
+// balance, rounded down so the amount shown can always be sold.
+function getAvailableSpotQty(
+  account: TradingAccount,
+  symbol: SymbolId,
+  marks: MarkPrices
+) {
+  const { qtyDecimals } = SYMBOLS[symbol]
+  const baseCurrency = getBaseCurrency(symbol)
+
+  if (baseCurrency) {
+    const factor = 10 ** qtyDecimals
+    // Tidied first, or float noise such as 0.3 - 0.1 would cost a whole step.
+    const steps = roundToDecimals(
+      getSpendable(account, baseCurrency, marks) * factor,
+      6
+    )
+
+    return Math.floor(steps) / factor
+  }
+
+  const reserved = account.openOrders
+    .filter(
+      (order) =>
+        order.market === 'spot' &&
+        order.side === 'sell' &&
+        order.symbol === symbol
+    )
+    .reduce((total, order) => total + order.qty, 0)
+
+  // Above zero, since float noise here would otherwise round to -0.
+  return Math.max(
+    roundToDecimals((account.spot[symbol]?.qty ?? 0) - reserved, qtyDecimals),
+    0
+  )
+}
+
+// For a currency base the balance is shown as the holding, with no cost basis:
+// that money has many sources, so it has no meaningful average cost.
+export function getSpotHoldingView(
+  account: TradingAccount,
+  symbol: SymbolId,
+  marks: MarkPrices = {}
+): SpotHoldingView {
+  const baseCurrency = getBaseCurrency(symbol)
+  const markPrice = marks[symbol]
+  const availableQty = getAvailableSpotQty(account, symbol, marks)
+
+  if (baseCurrency) {
+    return {
+      symbol,
+      qty: account.balances[baseCurrency],
+      avgCost: 0,
+      availableQty,
+      markPrice,
+      unrealizedPnl: 0
+    }
+  }
+
+  const qty = account.spot[symbol]?.qty ?? 0
+  const avgCost = account.spot[symbol]?.avgCost ?? 0
+
+  return {
+    symbol,
+    qty,
+    avgCost,
+    availableQty,
+    markPrice,
+    value: markPrice === undefined ? undefined : qty * markPrice,
+    unrealizedPnl: markPrice === undefined ? 0 : qty * (markPrice - avgCost)
+  }
+}
+
+export function changeTradeMode(
+  account: TradingAccount,
+  symbol: SymbolId,
+  mode: TradeMarket
+): TradingAccount {
+  return { ...account, tradeMode: { ...account.tradeMode, [symbol]: mode } }
+}
+
+interface FillInput {
+  orderId: number
+  symbol: SymbolId
+  side: TradeSide
+  qty: number
+  price: number
+  liquidity: Liquidity
+  time: number
+  isLiquidation?: boolean
+}
+
+// Never touches positions: a spot trade moves money between the symbol's quote
+// balance and either its base balance or its spot holding. A currency base gets
+// its own ledger entry, so each balance still adds up from its entries.
+function applySpotFill(
+  account: TradingAccount,
+  { orderId, symbol, side, qty, price, liquidity, time }: FillInput
+): { account: TradingAccount; fill: Fill } {
+  const config = SYMBOLS[symbol]
+  const baseCurrency = getBaseCurrency(symbol)
+  const holding = account.spot[symbol]
+  const heldQty = holding?.qty ?? 0
+  const avgCost = holding?.avgCost ?? 0
+  const signedQty = side === 'buy' ? qty : -qty
+  const nextQty = roundToDecimals(heldQty + signedQty, config.qtyDecimals)
+  const fee = qty * price * account.feeRates[symbol][liquidity]
+  const realizedPnl =
+    side === 'sell' && !baseCurrency ? qty * (price - avgCost) : 0
+  const spot = { ...account.spot }
+
+  if (baseCurrency) {
+    // Nothing to hold: the base is applied to its balance below.
+  } else if (nextQty === 0) {
+    delete spot[symbol]
+  } else {
+    spot[symbol] = {
+      qty: nextQty,
+      avgCost:
+        side === 'buy' ? (heldQty * avgCost + qty * price) / nextQty : avgCost
+    }
+  }
+
+  const fill: Fill = {
+    id: account.nextId,
+    orderId,
+    market: 'spot',
+    symbol,
+    side,
+    qty,
+    price,
+    liquidity,
+    fee,
+    realizedPnl,
+    time
+  }
+  const type = side === 'buy' ? 'spotBuy' : 'spotSell'
+  const { account: settledQuote } = appendLedgerEntry(
+    { ...account, nextId: account.nextId + 1 },
+    {
+      type,
+      currency: config.quote,
+      amount: -signedQty * price - fee,
+      time,
+      symbol
+    }
+  )
+  const settled = baseCurrency
+    ? appendLedgerEntry(settledQuote, {
+        type,
+        currency: baseCurrency,
+        amount: signedQty,
+        time,
+        symbol
+      }).account
+    : settledQuote
+
+  return {
+    fill,
+    account: {
+      ...settled,
+      spot,
+      fills: [fill, ...account.fills].slice(0, MAX_FILLS)
+    }
+  }
+}
+
 function applyFill(
   account: TradingAccount,
-  input: {
-    orderId: number
-    symbol: SymbolId
-    side: TradeSide
-    qty: number
-    price: number
-    liquidity: Liquidity
-    time: number
-    isLiquidation?: boolean
-  }
+  input: FillInput
 ): { account: TradingAccount; fill: Fill } {
   const { orderId, symbol, side, qty, price, liquidity, time, isLiquidation } =
     input
@@ -343,6 +575,7 @@ function applyFill(
   const fill: Fill = {
     id: account.nextId,
     orderId,
+    market: 'margin',
     symbol,
     side,
     qty,
@@ -379,7 +612,7 @@ export function submitOrder(
   account: TradingAccount,
   { request, book, marks, time }: OrderSubmission
 ): OrderResult {
-  const { symbol, side, type } = request
+  const { symbol, side, type, market = 'margin' } = request
   const config = SYMBOLS[symbol]
   const qty = roundToDecimals(request.qty, config.qtyDecimals)
 
@@ -419,51 +652,28 @@ export function submitOrder(
         ? best
         : (limitPrice as number)
 
-  const positionQty = account.positions[symbol]?.qty ?? 0
-  const isReducing =
-    positionQty !== 0 &&
-    (side === 'buy') !== positionQty > 0 &&
-    qty <= Math.abs(positionQty)
-
-  if (!isReducing && qty * referencePrice < config.minNotional) {
-    return { ok: false, reason: 'belowMinNotional' }
-  }
-
   const order: Order = {
     id: account.nextId,
+    market,
     symbol,
     side,
     qty,
     price: referencePrice,
     createdAt: time
   }
-  const { equity } = getAccountSummary(account, config.quote, marks)
-  const marginBefore = getUsedMargin(config.quote, account)
-  const marginAfter = getUsedMargin(config.quote, {
-    ...account,
-    openOrders: [...account.openOrders, order]
-  })
-  const feeRate = account.feeRates[symbol][isTaker ? 'taker' : 'maker']
-  const fee = qty * referencePrice * feeRate
+  const fee =
+    qty * referencePrice * account.feeRates[symbol][isTaker ? 'taker' : 'maker']
+  const rejection =
+    market === 'spot'
+      ? getSpotRejection(account, order, fee, marks)
+      : getMarginRejection(account, order, fee, marks)
 
-  // Orders that don't add exposure stay allowed so an underwater position can
-  // always be closed.
-  if (marginAfter > marginBefore && marginAfter + Math.max(fee, 0) > equity) {
-    return { ok: false, reason: 'insufficientMargin' }
-  }
+  if (rejection) return { ok: false, reason: rejection }
 
   const withId = { ...account, nextId: account.nextId + 1 }
 
   if (isTaker) {
-    const { account: filled, fill } = applyFill(withId, {
-      orderId: order.id,
-      symbol,
-      side,
-      qty,
-      price: referencePrice,
-      liquidity: 'taker',
-      time
-    })
+    const { account: filled, fill } = fillOrder(withId, order, 'taker', time)
 
     return { ok: true, account: filled, fill }
   }
@@ -475,6 +685,88 @@ export function submitOrder(
   }
 }
 
+function fillOrder(
+  account: TradingAccount,
+  order: Order,
+  liquidity: Liquidity,
+  time: number
+) {
+  const input = {
+    orderId: order.id,
+    symbol: order.symbol,
+    side: order.side,
+    qty: order.qty,
+    price: order.price,
+    liquidity,
+    time
+  }
+
+  return order.market === 'spot'
+    ? applySpotFill(account, input)
+    : applyFill(account, input)
+}
+
+function getMarginRejection(
+  account: TradingAccount,
+  order: Order,
+  fee: number,
+  marks: MarkPrices
+): OrderRejection | null {
+  const { symbol, side, qty, price } = order
+  const config = SYMBOLS[symbol]
+  const positionQty = account.positions[symbol]?.qty ?? 0
+  const isReducing =
+    positionQty !== 0 &&
+    (side === 'buy') !== positionQty > 0 &&
+    qty <= Math.abs(positionQty)
+
+  if (!isReducing && qty * price < config.minNotional) {
+    return 'belowMinNotional'
+  }
+
+  const { equity } = getAccountSummary(account, config.quote, marks)
+  const marginBefore = getUsedMargin(config.quote, account)
+  const marginAfter = getUsedMargin(config.quote, {
+    ...account,
+    openOrders: [...account.openOrders, order]
+  })
+
+  // Orders that don't add exposure stay allowed so an underwater position can
+  // always be closed.
+  return marginAfter > marginBefore && marginAfter + Math.max(fee, 0) > equity
+    ? 'insufficientMargin'
+    : null
+}
+
+function getSpotRejection(
+  account: TradingAccount,
+  order: Order,
+  fee: number,
+  marks: MarkPrices
+): OrderRejection | null {
+  const { symbol, side, qty, price } = order
+  const config = SYMBOLS[symbol]
+
+  if (side === 'sell') {
+    const available = getAvailableSpotQty(account, symbol, marks)
+
+    if (qty > available) return 'insufficientSpotBalance'
+
+    // Selling everything is always allowed, so a small leftover isn't stuck.
+    return qty < available && qty * price < config.minNotional
+      ? 'belowMinNotional'
+      : null
+  }
+
+  if (qty * price < config.minNotional) return 'belowMinNotional'
+
+  const cost = qty * price + Math.max(fee, 0)
+
+  return cost > getSpendable(account, config.quote, marks)
+    ? 'insufficientFunds'
+    : null
+}
+
 // Fills every resting order the market touched, oldest first, ignoring orders
 // placed at or after `placedBefore`. Returns the same account object when nothing
 // fills so callers can skip the store write.
@@ -482,14 +774,12 @@ export function matchRestingOrders(
   account: TradingAccount,
   symbol: SymbolId,
   { low, high }: PriceCrossing,
-  time: number,
-  placedBefore = Infinity
+  time: number
 ): TradingAccount {
   const matched = account.openOrders
     .filter(
       (order) =>
         order.symbol === symbol &&
-        order.createdAt < placedBefore &&
         (order.side === 'buy' ? low <= order.price : high >= order.price)
     )
     .sort((a, b) => a.id - b.id)
@@ -499,16 +789,7 @@ export function matchRestingOrders(
   const matchedIds = new Set(matched.map((order) => order.id))
 
   return matched.reduce(
-    (result, order) =>
-      applyFill(result, {
-        orderId: order.id,
-        symbol,
-        side: order.side,
-        qty: order.qty,
-        price: order.price,
-        liquidity: 'maker',
-        time
-      }).account,
+    (result, order) => fillOrder(result, order, 'maker', time).account,
     {
       ...account,
       openOrders: account.openOrders.filter(
@@ -555,9 +836,18 @@ export function getLiquidationPrice(
   return price > 0 ? price : undefined
 }
 
-// Closes every position in the currency and cancels its orders. A jump past the
-// point where the balance runs out would leave it negative, so the balance stops
-// at zero and a ledger entry shows the loss that was covered.
+// Whether an order needs a currency's balance to fill: its quote, except a spot
+// sell, which only needs what it delivers.
+function dependsOnCurrency(order: Order, currency: Currency) {
+  return order.market === 'spot' && order.side === 'sell'
+    ? getBaseCurrency(order.symbol) === currency
+    : SYMBOLS[order.symbol].quote === currency
+}
+
+// Closes every position in the currency and cancels the orders that need its
+// balance, which may be gone. Spot holdings aren't collateral, so they stay. A jump
+// past the point where the balance runs out would leave it negative, so the balance
+// stops at zero and a ledger entry shows the loss that was covered.
 function liquidateCurrency(
   account: TradingAccount,
   symbol: SymbolId,
@@ -570,7 +860,7 @@ function liquidateCurrency(
   let result: TradingAccount = {
     ...account,
     openOrders: account.openOrders.filter(
-      (order) => SYMBOLS[order.symbol].quote !== quote
+      (order) => !dependsOnCurrency(order, quote)
     )
   }
 
@@ -651,71 +941,166 @@ export function liquidateIfBreached(
     : account
 }
 
-// A candle only counts for a position last changed before it opened, because its
-// high and low may come from before that change. The close is at the liquidation
-// price, or at the candle's open if the market had already gone past it.
-function liquidateOnCandle(
+export function hasExposure(account: TradingAccount) {
+  return (
+    account.openOrders.length > 0 || Object.keys(account.positions).length > 0
+  )
+}
+
+export function isSymbolExposed(account: TradingAccount, symbol: SymbolId) {
+  return (
+    account.positions[symbol] !== undefined ||
+    account.openOrders.some((order) => order.symbol === symbol)
+  )
+}
+
+function isLiquidationActive(
+  position: Position,
+  price: number,
+  reached: number
+) {
+  return position.qty > 0 ? reached <= price : reached >= price
+}
+
+// Whether a price range could set anything off, counting only orders and positions
+// that existed before the given time. The range may come from before they did, so a
+// yes means "look closer" rather than "this happened".
+export function hasTriggerInRange(
   account: TradingAccount,
   symbol: SymbolId,
-  candle: Candle,
+  { low, high }: PriceCrossing,
+  before: number,
   marks: MarkPrices
-): TradingAccount {
-  const openedAt = candle.time * 1000
+) {
   const position = account.positions[symbol]
   const liquidationPrice = getLiquidationPrice(account, symbol, marks)
 
-  if (
-    !position ||
-    liquidationPrice === undefined ||
-    position.updatedAt >= openedAt
-  ) {
-    return account
-  }
-
-  if (position.qty > 0) {
-    return candle.low <= liquidationPrice
-      ? liquidateCurrency(
-          account,
-          symbol,
-          Math.min(liquidationPrice, candle.open),
-          marks,
-          openedAt
-        )
-      : account
-  }
-
-  return candle.high >= liquidationPrice
-    ? liquidateCurrency(
-        account,
-        symbol,
-        Math.max(liquidationPrice, candle.open),
-        marks,
-        openedAt
-      )
-    : account
+  return (
+    account.openOrders.some(
+      (order) =>
+        order.symbol === symbol &&
+        order.createdAt < before &&
+        (order.side === 'buy' ? low <= order.price : high >= order.price)
+    ) ||
+    (position !== undefined &&
+      liquidationPrice !== undefined &&
+      position.updatedAt < before &&
+      isLiquidationActive(
+        position,
+        liquidationPrice,
+        position.qty > 0 ? low : high
+      ))
+  )
 }
 
-// Applies candles from a period the live stream missed. A candle only counts for
-// orders placed before it opened, because its high and low may come from before
-// the order existed.
-export function replayCandles(
+// What the market reaches first on its way between two prices: the nearest of the
+// resting orders and the liquidation price. An order goes before a liquidation at
+// the same price, then the oldest order first.
+function getNextTrigger(
   account: TradingAccount,
   symbol: SymbolId,
-  candles: Candle[],
-  marks: MarkPrices = {}
-): TradingAccount {
-  return candles.reduce((result, candle) => {
-    const openedAt = candle.time * 1000
-    const matched = matchRestingOrders(
-      result,
-      symbol,
-      { low: candle.low, high: candle.high },
-      openedAt,
-      openedAt
+  { from, to, time }: PriceMove,
+  marks: MarkPrices
+) {
+  const position = account.positions[symbol]
+  const liquidationPrice = getLiquidationPrice(account, symbol, marks)
+  const direction = to <= from ? -1 : 1
+  const orders = account.openOrders
+    .filter(
+      (order) =>
+        order.symbol === symbol &&
+        order.createdAt <= time &&
+        (order.side === 'buy' ? to <= order.price : to >= order.price)
     )
+    .sort((a, b) => direction * (a.price - b.price) || a.id - b.id)
+  const nextOrder = orders.at(0)
+  const isLiquidated =
+    position !== undefined &&
+    liquidationPrice !== undefined &&
+    position.updatedAt <= time &&
+    isLiquidationActive(position, liquidationPrice, to)
 
-    return liquidateOnCandle(matched, symbol, candle, marks)
-  }, account)
+  if (
+    isLiquidated &&
+    (!nextOrder || direction * (liquidationPrice - nextOrder.price) < 0)
+  ) {
+    return { liquidationPrice: liquidationPrice as number }
+  }
+
+  return nextOrder && { order: nextOrder }
+}
+
+// Applies everything a price move sets off, working it out again after each event
+// because a fill moves the liquidation price and a liquidation cancels orders. A
+// liquidation closes at its price, or at the starting price if that's already past
+// it.
+export function applyPriceMove(
+  account: TradingAccount,
+  symbol: SymbolId,
+  move: PriceMove,
+  marks: MarkPrices
+): { account: TradingAccount; events: SimulationEvent[] } {
+  const events: SimulationEvent[] = []
+  let current = account
+
+  for (;;) {
+    const trigger = getNextTrigger(current, symbol, move, marks)
+
+    if (!trigger) return { account: current, events }
+
+    if (trigger.order) {
+      const { order } = trigger
+      const { account: filled, fill } = fillOrder(
+        {
+          ...current,
+          openOrders: current.openOrders.filter(({ id }) => id !== order.id)
+        },
+        order,
+        'maker',
+        move.time
+      )
+
+      current = filled
+      events.push({
+        kind: 'fill',
+        id: fill.id,
+        symbol,
+        market: order.market,
+        side: order.side,
+        qty: order.qty,
+        price: order.price,
+        time: move.time
+      })
+      continue
+    }
+
+    const position = current.positions[symbol] as Position
+    const before = current
+    const closePrice =
+      position.qty > 0
+        ? Math.min(trigger.liquidationPrice, move.from)
+        : Math.max(trigger.liquidationPrice, move.from)
+
+    current = liquidateCurrency(current, symbol, closePrice, marks, move.time)
+
+    const cancelledOrders = before.openOrders.length - current.openOrders.length
+
+    const known = new Set(before.liquidationNotices.map(({ id }) => id))
+
+    for (const notice of current.liquidationNotices) {
+      if (known.has(notice.id)) continue
+
+      events.push({
+        kind: 'liquidation',
+        id: notice.id,
+        symbol: notice.symbol,
+        qty: notice.qty,
+        price: notice.price,
+        time: notice.time,
+        cancelledOrders
+      })
+    }
+  }
 }
 
 export function dismissNotices(account: TradingAccount): TradingAccount {

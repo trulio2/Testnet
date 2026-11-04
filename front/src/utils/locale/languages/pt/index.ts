@@ -6,10 +6,10 @@ export const pt: ITranslations = {
     wallet: {
       title: 'Carteira',
       description:
-        'Fundos simulados para testes. USD garante BTC/USD e BRL garante USD/BRL.',
+        'Fundos simulados para testes. USD garante BTC/USD e BRL garante USD/BRL. USD comprado ou vendido no spot de USD/BRL usa este mesmo saldo em USD.',
       reset: 'Redefinir conta',
       resetConfirm:
-        'Redefinir a conta? Os saldos voltam aos valores iniciais, e posições, ordens abertas, execuções e histórico de fundos serão apagados.'
+        'Redefinir a conta? Os saldos voltam aos valores iniciais, e posições, saldos spot, ordens abertas, execuções e histórico de fundos serão apagados.'
     },
     changelog: {}
   },
@@ -39,7 +39,8 @@ export const pt: ITranslations = {
       buy: 'Compra',
       sell: 'Venda',
       entry: 'Entrada',
-      liquidation: 'Liq.'
+      liquidation: 'Liq.',
+      spot: 'Spot'
     },
     orderForm: {
       title: 'Ordem',
@@ -49,11 +50,17 @@ export const pt: ITranslations = {
       size: 'Quantidade ({unit})',
       price: 'Preço ({unit})',
       marketNote: 'Executa agora ao melhor preço disponível.',
+      mode: 'Modo',
+      spot: 'Spot',
+      canSpend: 'Pode gastar ({asset})',
+      spotBalance: 'Saldo de {asset}',
+      canSell: 'Pode vender ({asset})',
+      buySpot: 'Comprar',
+      sellSpot: 'Vender',
       orderValue: 'Valor da ordem',
       margin: 'Margem',
       buyingPower: 'Poder de compra',
       fees: 'Taxa maker / taker',
-      leverage: 'Alavancagem',
       leverageRejected:
         'Saldo disponível em {quote} insuficiente para {leverage}x. Adicione fundos ou reduza a posição.',
       buy: 'Comprar / Long',
@@ -67,6 +74,9 @@ export const pt: ITranslations = {
           'O valor da ordem deve ser de pelo menos {min} {quote}.',
         insufficientMargin:
           'Saldo disponível em {quote} insuficiente. Adicione fundos na carteira ou aumente a alavancagem.',
+        insufficientFunds:
+          'Saldo disponível em {quote} insuficiente. Adicione fundos na carteira.',
+        insufficientSpotBalance: 'Você só pode vender até {available} {base}.',
         marketUnavailable: 'Dados de mercado indisponíveis no momento.'
       }
     },
@@ -190,6 +200,8 @@ export const pt: ITranslations = {
       trade: 'Negociação',
       liquidation: 'Liquidação',
       lossCovered: 'Perda coberta',
+      spotBuy: 'Compra spot',
+      spotSell: 'Venda spot',
       empty: 'Nenhum lançamento ainda.'
     },
     liquidation: {
@@ -197,12 +209,43 @@ export const pt: ITranslations = {
         'Sua posição {side} de {qty} em {symbol} foi liquidada a {price} {quote}. Suas ordens abertas em {quote} foram canceladas.',
       dismiss: 'Dispensar'
     },
+    simulation: {
+      title: 'Enquanto você esteve fora',
+      running: 'Verificando o que o mercado fez…',
+      checkedUpTo: 'Verificado até {time} UTC',
+      failed:
+        'Não foi possível carregar os dados de mercado. As negociações continuam pausadas e uma nova tentativa será feita em breve.',
+      retry: 'Tentar novamente',
+      nothingHappened: 'Nenhuma ordem foi executada e nada foi liquidado.',
+      fill: '{market}: {side} de {qty} {base} em {symbol} executada a {price} {quote}.',
+      cancelled: 'Ordens abertas canceladas: {count}.',
+      estimated:
+        'Horário estimado: os dados detalhados de mercado não estão mais disponíveis.',
+      close: 'Fechar'
+    },
     session: {
       title: 'O Testnet está aberto em outra aba',
       description:
         'Sua conta roda em uma aba por vez. Esta aba assume quando a outra for fechada.'
     },
+    spotBalance: {
+      title: '{asset} spot',
+      boughtOn: 'Comprado em {symbol}',
+      available: 'Disponível para venda',
+      avgCost: 'Custo médio',
+      value: 'Valor',
+      unrealizedPnl: 'PnL não realizado'
+    },
     ordersPanel: {
+      spot: 'Spot',
+      spotEmpty: 'Nenhum saldo spot.',
+      margin: 'Margem',
+      market: 'Mercado',
+      balance: 'Saldo',
+      available: 'Disponível',
+      avgCost: 'Custo médio',
+      value: 'Valor',
+      sellAll: 'Vender tudo',
       positions: 'Posições',
       orders: 'Ordens abertas',
       fills: 'Execuções',

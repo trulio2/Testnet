@@ -4,11 +4,15 @@ export type OrderType = 'market' | 'limit'
 
 export type Liquidity = 'maker' | 'taker'
 
+export type TradeMarket = 'margin' | 'spot'
+
 export type OrderRejection =
   | 'invalidQty'
   | 'invalidPrice'
   | 'belowMinNotional'
   | 'insufficientMargin'
+  | 'insufficientFunds'
+  | 'insufficientSpotBalance'
   | 'marketUnavailable'
 
 export interface OrderRequest {
@@ -17,10 +21,12 @@ export interface OrderRequest {
   type: OrderType
   qty: number
   price?: number
+  market?: TradeMarket
 }
 
 export interface Order {
   id: number
+  market: TradeMarket
   symbol: SymbolId
   side: TradeSide
   qty: number
@@ -31,6 +37,7 @@ export interface Order {
 export interface Fill {
   id: number
   orderId: number
+  market: TradeMarket
   symbol: SymbolId
   side: TradeSide
   qty: number
@@ -49,6 +56,21 @@ export interface Position {
   updatedAt: number
 }
 
+// Bought coins held outright, such as BTC. USD isn't held this way: USD/BRL spot
+// settles straight into the USD balance.
+export interface SpotHolding {
+  qty: number
+  avgCost: number
+}
+
+export interface SpotHoldingView extends SpotHolding {
+  symbol: SymbolId
+  availableQty: number
+  markPrice?: number
+  value?: number
+  unrealizedPnl: number
+}
+
 export interface LiquidationNotice {
   id: number
   symbol: SymbolId
@@ -58,7 +80,13 @@ export interface LiquidationNotice {
 }
 
 export type LedgerEntryType =
-  'initial' | 'deposit' | 'trade' | 'liquidation' | 'lossCovered'
+  | 'initial'
+  | 'deposit'
+  | 'trade'
+  | 'liquidation'
+  | 'lossCovered'
+  | 'spotBuy'
+  | 'spotSell'
 
 export interface LedgerEntry {
   id: number
@@ -79,10 +107,23 @@ export interface TradingAccount {
   liquidationNotices: LiquidationNotice[]
   leverage: Record<SymbolId, number>
   feeRates: Record<SymbolId, FeeRates>
+  spot: Partial<Record<SymbolId, SpotHolding>>
+  tradeMode: Record<SymbolId, TradeMarket>
   nextId: number
 }
 
-export type TradingAccountV4 = Omit<TradingAccount, 'feeRates'>
+type OrderV5 = Omit<Order, 'market'>
+type FillV5 = Omit<Fill, 'market'>
+
+export type TradingAccountV5 = Omit<
+  TradingAccount,
+  'spot' | 'tradeMode' | 'openOrders' | 'fills'
+> & {
+  openOrders: OrderV5[]
+  fills: FillV5[]
+}
+
+export type TradingAccountV4 = Omit<TradingAccountV5, 'feeRates'>
 
 export type TradingAccountV3 = Omit<TradingAccountV4, 'leverage'>
 
@@ -112,16 +153,16 @@ type PositionsV2 = Partial<Record<SymbolId, Omit<Position, 'updatedAt'>>>
 export interface TradingAccountV1 {
   walletBalance: number
   positions: PositionsV2
-  openOrders: Order[]
-  fills: Fill[]
+  openOrders: OrderV5[]
+  fills: FillV5[]
   nextId: number
 }
 
 export interface TradingAccountV2 {
   balances: Record<Currency, number>
   positions: PositionsV2
-  openOrders: Order[]
-  fills: Fill[]
+  openOrders: OrderV5[]
+  fills: FillV5[]
   ledger: LedgerEntry[]
   nextId: number
 }
@@ -168,8 +209,48 @@ export interface OrderDraft {
   price: string
 }
 
+export interface PriceMove {
+  from: number
+  to: number
+  time: number
+}
+
+interface SimulationEventBase {
+  id: number
+  symbol: SymbolId
+  qty: number
+  price: number
+  time: number
+  estimated?: boolean
+}
+
+export type SimulationEvent =
+  | (SimulationEventBase & {
+      kind: 'fill'
+      market: TradeMarket
+      side: TradeSide
+    })
+  | (SimulationEventBase & { kind: 'liquidation'; cancelledOrders: number })
+
+export interface SimulationBalance {
+  currency: Currency
+  before: number
+  after: number
+}
+
+export interface SimulationRun {
+  status: 'running' | 'failed' | 'done'
+  isVisible: boolean
+  checkedUpTo: number
+  events: SimulationEvent[]
+  balances: SimulationBalance[]
+}
+
 export interface ITradingService {
   start(): void
+  getSimulation(): SimulationRun | null
+  retrySimulation(): void
+  dismissSimulation(): void
   getAccountSummary(currency: Currency): AccountSummary
   getLedger(): LedgerEntry[]
   depositFunds(currency: Currency, amount: number): DepositFundsResult
@@ -177,6 +258,12 @@ export interface ITradingService {
   getPosition(symbol: SymbolId): Position | undefined
   getLiquidationPrice(symbol: SymbolId): number | undefined
   getLiquidationNotices(): LiquidationNotice[]
+  getSpendable(currency: Currency): number
+  getSpotHolding(symbol: SymbolId): SpotHoldingView
+  getSpotHoldings(): SpotHoldingView[]
+  sellSpotHolding(symbol: SymbolId): PlaceOrderResult
+  getTradeMode(symbol: SymbolId): TradeMarket
+  setTradeMode(symbol: SymbolId, mode: TradeMarket): void
   getLeverage(symbol: SymbolId): number
   setLeverage(symbol: SymbolId, leverage: number): SetLeverageResult
   getFeeRates(symbol: SymbolId): FeeRates

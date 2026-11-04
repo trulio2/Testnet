@@ -4,6 +4,24 @@ export default class ChangelogRepository implements IChangelogRepository {
   public getEntries(): ChangelogEntry[] {
     return [
       {
+        version: '0.6.0',
+        items: [
+          {
+            type: 'added',
+            text: 'When you come back with open orders or positions, the time you were away is replayed in the order it happened, and a window shows what was filled or liquidated.'
+          }
+        ]
+      },
+      {
+        version: '0.5.0',
+        items: [
+          {
+            type: 'added',
+            text: 'Spot trading: buy and sell BTC outright, held apart from long and short positions, and buy or sell USD for BRL using your USD balance.'
+          }
+        ]
+      },
+      {
         version: '0.4.2',
         items: [
           {

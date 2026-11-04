@@ -8,7 +8,10 @@ import {
   useMarkPrice,
   useMoneyFormat,
   useOrderDraft,
+  useSpendable,
+  useSpotHolding,
   useSymbol,
+  useTradeMode,
   useTradingActions
 } from '@/modules/services'
 import type { OrderType, SymbolId, TradeSide } from '@/types'
@@ -30,7 +33,11 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
   const { leverage, options: leverageOptions } = useLeverage(symbol)
   const { makerLabel, takerLabel } = useFeeRates(symbol)
   const { availableMargin } = useAccountSummary(config.quote)
-  const { placeOrder, setLeverage, updateOrderDraft } = useTradingActions()
+  const tradeMode = useTradeMode(symbol)
+  const spendable = useSpendable(config.quote)
+  const spotHolding = useSpotHolding(symbol)
+  const { placeOrder, setLeverage, setTradeMode, updateOrderDraft } =
+    useTradingActions()
   const [feedback, setFeedback] = useState<Feedback | null>(null)
 
   const isLimit = draft.type === 'limit'
@@ -38,10 +45,13 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
   const referencePrice = isLimit ? parseDecimal(draft.price) : markPrice
   const orderValue = referencePrice === undefined ? NaN : qty * referencePrice
   const isLive = status === 'live'
+  const isSpot = tradeMode === 'spot'
   const buyingPower = Math.max(availableMargin, 0) * leverage
 
   const selectLeverage = (option: number) => {
     const result = setLeverage(symbol, option)
+
+    if (result.ok) setTradeMode(symbol, 'margin')
 
     setFeedback(
       result.ok
@@ -54,6 +64,11 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
             })
           }
     )
+  }
+
+  const selectSpot = () => {
+    setTradeMode(symbol, 'spot')
+    setFeedback(null)
   }
 
   const selectType = (type: OrderType) => {
@@ -70,6 +85,7 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
       symbol,
       side,
       type: draft.type,
+      market: tradeMode,
       qty,
       price: isLimit ? parseDecimal(draft.price) : undefined
     })
@@ -79,7 +95,9 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
         isError: true,
         text: t(`components.orderForm.errors.${result.reason}`, {
           min: config.minNotional,
-          quote: config.quote
+          quote: config.quote,
+          base: config.base,
+          available: formatQty(spotHolding.availableQty)
         })
       })
     } else if (result.fill) {
@@ -104,15 +122,25 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
       <div className="order-form-body">
         <div className="order-leverage">
           <span id="order-leverage-label">
-            {t('components.orderForm.leverage')}
+            {t('components.orderForm.mode')}
           </span>
           <div role="group" aria-labelledby="order-leverage-label">
+            <button
+              type="button"
+              className={isSpot ? 'active' : undefined}
+              aria-pressed={isSpot}
+              onClick={selectSpot}
+            >
+              {t('components.orderForm.spot')}
+            </button>
             {leverageOptions.map((option) => (
               <button
                 key={option}
                 type="button"
-                className={option === leverage ? 'active' : undefined}
-                aria-pressed={option === leverage}
+                className={
+                  !isSpot && option === leverage ? 'active' : undefined
+                }
+                aria-pressed={!isSpot && option === leverage}
                 onClick={() => selectLeverage(option)}
               >
                 {option}x
@@ -178,16 +206,35 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
               ? `${formatMoney(orderValue)} ${config.quote}`
               : '—'}
           </dd>
-          <dt>{t('components.orderForm.margin')}</dt>
-          <dd>
-            {Number.isFinite(orderValue)
-              ? `${formatMoney(orderValue / leverage)} ${config.quote}`
-              : '—'}
-          </dd>
-          <dt>{t('components.orderForm.buyingPower')}</dt>
-          <dd>
-            {formatMoney(buyingPower)} {config.quote}
-          </dd>
+          {isSpot ? (
+            <>
+              <dt>
+                {t('components.orderForm.canSpend', { asset: config.quote })}
+              </dt>
+              <dd>{formatMoney(spendable)}</dd>
+              <dt>
+                {t('components.orderForm.spotBalance', { asset: config.base })}
+              </dt>
+              <dd>{formatQty(spotHolding.qty)}</dd>
+              <dt>
+                {t('components.orderForm.canSell', { asset: config.base })}
+              </dt>
+              <dd>{formatQty(spotHolding.availableQty)}</dd>
+            </>
+          ) : (
+            <>
+              <dt>{t('components.orderForm.margin')}</dt>
+              <dd>
+                {Number.isFinite(orderValue)
+                  ? `${formatMoney(orderValue / leverage)} ${config.quote}`
+                  : '—'}
+              </dd>
+              <dt>{t('components.orderForm.buyingPower')}</dt>
+              <dd>
+                {formatMoney(buyingPower)} {config.quote}
+              </dd>
+            </>
+          )}
           <dt>{t('components.orderForm.fees')}</dt>
           <dd>
             {makerLabel}% / {takerLabel}%
@@ -201,7 +248,7 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
             disabled={!isLive}
             onClick={() => submit('buy')}
           >
-            {t('components.orderForm.buy')}
+            {t(`components.orderForm.${isSpot ? 'buySpot' : 'buy'}`)}
           </button>
           <button
             type="button"
@@ -209,7 +256,7 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
             disabled={!isLive}
             onClick={() => submit('sell')}
           >
-            {t('components.orderForm.sell')}
+            {t(`components.orderForm.${isSpot ? 'sellSpot' : 'sell'}`)}
           </button>
         </div>
 

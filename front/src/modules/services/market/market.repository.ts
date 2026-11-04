@@ -122,6 +122,20 @@ export default class MarketRepository implements IMarketRepository {
     return trades.map(toTrade)
   }
 
+  public async fetchTrades(
+    symbol: SymbolId,
+    { limit, startTime, endTime }: FetchCandlesOptions
+  ): Promise<Trade[]> {
+    const trades = await getJson<BinanceAggTrade[]>('aggTrades', {
+      symbol: SYMBOLS[symbol].feedSymbol,
+      limit: String(limit),
+      ...(startTime === undefined ? {} : { startTime: String(startTime) }),
+      ...(endTime === undefined ? {} : { endTime: String(endTime) })
+    })
+
+    return trades.map(toTrade)
+  }
+
   public async fetchOrderBook(
     symbol: SymbolId,
     limit: number
