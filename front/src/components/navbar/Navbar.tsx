@@ -11,7 +11,6 @@ export default function Navbar() {
   const links = [
     { to: '/', label: t('nav.home') },
     { to: '/wallet', label: t('nav.wallet') },
-    { to: '/changelog', label: t('nav.changelog') }
   ]
 
   const isLinkActive = (to: string) =>
@@ -22,7 +21,7 @@ export default function Navbar() {
   return (
     <header className="navbar">
       <Link to="/" className="navbar-brand">
-        Testnet
+        TN
       </Link>
       {symbol && <TickerBar symbol={symbol} />}
       <nav aria-label="Primary">

@@ -75,9 +75,6 @@ export default function TickerBar({ symbol }: { symbol: SymbolId }) {
           <dd>{ticker ? formatVolume(ticker.volume) : '—'}</dd>
         </div>
       </dl>
-      <span className={`ticker-status ticker-status-${status}`} role="status">
-        {t(`components.connection.${status}`)}
-      </span>
     </div>
   )
 }
