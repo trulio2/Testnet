@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  useConnectionStatus,
   useLastPrice,
   useLocale,
   useSymbol,
@@ -42,7 +41,6 @@ export default function TickerBar({ symbol }: { symbol: SymbolId }) {
   const { symbols } = useSymbols()
   const { formatPrice, formatVolume, formatPercent } = useSymbol(symbol)
   const ticker = useTicker(symbol)
-  const status = useConnectionStatus(symbol)
 
   const changeDirection = (ticker?.changePercent ?? 0) >= 0 ? 'up' : 'down'
 
