@@ -33,7 +33,10 @@ interface IComponents {
   chart: {
     timeframe: string
     loading: string
-    feedNote: string
+    feedNote: {
+      spot: string
+      futures: string
+    }
     buy: string
     sell: string
     entry: string
@@ -85,6 +88,7 @@ interface IComponents {
   }
   walletBalance: {
     usedFor: string
+    usedForMany: string
   }
   indicators: {
     title: string

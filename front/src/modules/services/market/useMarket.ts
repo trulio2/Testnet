@@ -95,8 +95,8 @@ export function useSymbol(symbol: SymbolId) {
   }, [symbol, locale])
 }
 
-export function useConnectionStatus() {
-  return marketService.getConnectionStatus()
+export function useConnectionStatus(symbol: SymbolId) {
+  return marketService.getConnectionStatus(symbol)
 }
 
 export function useTicker(symbol: SymbolId) {

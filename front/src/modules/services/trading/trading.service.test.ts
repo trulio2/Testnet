@@ -769,7 +769,10 @@ describe('spot', () => {
 
     service.setTradeMode('USDBRL', 'spot')
 
-    expect(account().tradeMode).toEqual({ BTCUSD: 'margin', USDBRL: 'spot' })
+    expect(account().tradeMode).toMatchObject({
+      BTCUSD: 'margin',
+      USDBRL: 'spot'
+    })
   })
 
   it('clears spot holdings and the mode on an account reset', () => {

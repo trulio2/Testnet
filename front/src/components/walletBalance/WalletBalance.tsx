@@ -15,7 +15,6 @@ export default function WalletBalance({ currency }: { currency: Currency }) {
   const usedFor = symbols
     .filter((symbol) => symbol.quote === currency)
     .map((symbol) => symbol.label)
-    .join(', ')
   const pnl = summary.unrealizedPnl
 
   return (
@@ -23,7 +22,14 @@ export default function WalletBalance({ currency }: { currency: Currency }) {
       <header className="wallet-balance-header">
         <h2>{currency}</h2>
         <span>
-          {t('components.walletBalance.usedFor', { symbols: usedFor })}
+          {usedFor.length > 2
+            ? t('components.walletBalance.usedForMany', {
+                symbol: usedFor[0],
+                count: usedFor.length - 1
+              })
+            : t('components.walletBalance.usedFor', {
+                symbols: usedFor.join(', ')
+              })}
         </span>
       </header>
       <p className="wallet-balance-amount">

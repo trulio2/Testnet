@@ -4,6 +4,15 @@ export default class ChangelogRepository implements IChangelogRepository {
   public getEntries(): ChangelogEntry[] {
     return [
       {
+        version: '0.7.0',
+        items: [
+          {
+            type: 'added',
+            text: 'Stocks and gold: NVDA, TSLA, AAPL, MSFT, GOOGL, SPY, SPCX and XAU against USD, priced from Binance Futures perpetuals and using your USD balance.'
+          }
+        ]
+      },
+      {
         version: '0.6.0',
         items: [
           {

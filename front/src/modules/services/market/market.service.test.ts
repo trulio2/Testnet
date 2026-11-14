@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   IMarketRepository,
+  MarketFeed,
   MarketStreamHandlers,
   OrderBook,
   SymbolId,
@@ -19,7 +20,8 @@ const trade = (id: number, price: number): Trade => ({
 })
 
 function setup(seedTrades: Partial<Record<SymbolId, Trade[]>> = {}) {
-  let handlers: MarketStreamHandlers | undefined
+  const handlers: Partial<Record<MarketFeed, MarketStreamHandlers>> = {}
+  const fetchTrades = vi.fn<IMarketRepository['fetchTrades']>(async () => [])
   const fetchOrderBook = vi.fn<IMarketRepository['fetchOrderBook']>(
     async () => ({
       bids: [{ price: 1, qty: 1 }],
@@ -30,10 +32,10 @@ function setup(seedTrades: Partial<Record<SymbolId, Trade[]>> = {}) {
   const repository: IMarketRepository = {
     fetchCandles: async () => [],
     fetchRecentTrades: async (symbol) => seedTrades[symbol] ?? [],
-    fetchTrades: async () => [],
+    fetchTrades,
     fetchOrderBook,
-    openStream(streamHandlers) {
-      handlers = streamHandlers
+    openStream(feed, streamHandlers) {
+      handlers[feed] = streamHandlers
 
       return { close() {} }
     }
@@ -45,9 +47,12 @@ function setup(seedTrades: Partial<Record<SymbolId, Trade[]>> = {}) {
   return {
     service,
     fetchOrderBook,
-    open: () => handlers?.onOpen(),
+    fetchTrades,
+    handlers,
+    open: (feed: MarketFeed = 'spot') => handlers[feed]?.onOpen(),
+    close: (feed: MarketFeed) => handlers[feed]?.onClose(),
     sendTrade: (symbol: SymbolId, value: Trade) =>
-      handlers?.onTrade(symbol, value)
+      handlers.spot?.onTrade(symbol, value)
   }
 }
 
@@ -304,5 +309,113 @@ describe('changeOrderBookStep', () => {
     service.changeOrderBookStep('BTCUSD', 1)
 
     expect(stored('BTCUSD')).toBe(0.1)
+  })
+})
+
+describe('feeds', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.stubGlobal('requestAnimationFrame', () => 0)
+    vi.stubGlobal('document', { visibilityState: 'visible' })
+    marketStore.setState({
+      status: { spot: 'connecting', futures: 'connecting' }
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('opens a stream for each feed', () => {
+    const { handlers } = setup()
+
+    expect(Object.keys(handlers).sort()).toEqual(['futures', 'spot'])
+  })
+
+  it('keeps spot live while futures cannot connect', () => {
+    const { service, open, close } = setup()
+
+    open('spot')
+    close('futures')
+
+    expect(service.isLive('BTCUSD')).toBe(true)
+    expect(service.isLive('NVDAUSD')).toBe(false)
+  })
+})
+
+describe('history on futures', () => {
+  const NOW = 10 * 86_400_000
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('returns no trades older than the exchange keeps, without asking', async () => {
+    const { service, fetchTrades } = setup()
+    const trades = await service.getHistoryTrades('NVDAUSD', {
+      limit: 1000,
+      startTime: NOW - 3 * 86_400_000
+    })
+
+    expect(trades).toEqual([])
+    expect(fetchTrades).not.toHaveBeenCalled()
+  })
+
+  it('asks for recent trades as usual', async () => {
+    const { service, fetchTrades } = setup()
+
+    await service.getHistoryTrades('NVDAUSD', {
+      limit: 1000,
+      startTime: NOW - 3_600_000
+    })
+
+    expect(fetchTrades).toHaveBeenCalledTimes(1)
+  })
+
+  it('builds one-second candles from trades, page by page', async () => {
+    const { service, fetchTrades } = setup()
+    const start = NOW - 3_600_000
+    const all = Array.from({ length: 1500 }, (_, id): Trade => ({
+      id,
+      price: 100 + (id % 7),
+      qty: 1,
+      time: start + Math.floor(id / 25) * 1000,
+      side: 'buy'
+    }))
+
+    fetchTrades.mockImplementation(async (_, { startTime = 0, limit }) =>
+      all.filter((trade) => trade.time >= startTime).slice(0, limit)
+    )
+
+    const candles = await service.getHistoryCandles('NVDAUSD', '1s', {
+      limit: 1000,
+      startTime: start,
+      endTime: start + 59_999
+    })
+
+    expect(candles).toHaveLength(60)
+    expect(candles[0]).toMatchObject({
+      time: start / 1000,
+      low: 100,
+      high: 106
+    })
+    expect(candles.reduce((sum, candle) => sum + candle.volume, 0)).toBe(1500)
+  })
+
+  it('has no one-second candles once the trades are gone', async () => {
+    const { service } = setup()
+
+    expect(
+      await service.getHistoryCandles('NVDAUSD', '1s', {
+        limit: 1000,
+        startTime: NOW - 5 * 86_400_000
+      })
+    ).toEqual([])
   })
 })

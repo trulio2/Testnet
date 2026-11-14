@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   useConnectionStatus,
@@ -12,9 +13,18 @@ import type { SymbolId } from '@/types'
 function SymbolTab({ symbol, active }: { symbol: SymbolId; active: boolean }) {
   const { config, formatPrice } = useSymbol(symbol)
   const lastPrice = useLastPrice(symbol)
+  const linkRef = useRef<HTMLAnchorElement>(null)
+
+  // The tabs scroll sideways when they don't fit, so the open one is kept in view.
+  useEffect(() => {
+    if (active) {
+      linkRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }
+  }, [active])
 
   return (
     <Link
+      ref={linkRef}
       to={`/${symbol}`}
       className={`symbol-tab${active ? ' active' : ''}`}
       aria-current={active ? 'page' : undefined}
@@ -32,7 +42,7 @@ export default function TickerBar({ symbol }: { symbol: SymbolId }) {
   const { symbols } = useSymbols()
   const { formatPrice, formatVolume, formatPercent } = useSymbol(symbol)
   const ticker = useTicker(symbol)
-  const status = useConnectionStatus()
+  const status = useConnectionStatus(symbol)
 
   const changeDirection = (ticker?.changePercent ?? 0) >= 0 ? 'up' : 'down'
 

@@ -29,7 +29,7 @@ export default function OrderForm({ symbol }: { symbol: SymbolId }) {
   const { formatMoney, parseDecimal } = useMoneyFormat()
   const draft = useOrderDraft(symbol)
   const markPrice = useMarkPrice(symbol)
-  const status = useConnectionStatus()
+  const status = useConnectionStatus(symbol)
   const { leverage, options: leverageOptions } = useLeverage(symbol)
   const { makerLabel, takerLabel } = useFeeRates(symbol)
   const { availableMargin } = useAccountSummary(config.quote)

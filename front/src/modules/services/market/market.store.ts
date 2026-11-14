@@ -1,15 +1,20 @@
 import { create } from 'zustand'
-import type { CandleSeries, ConnectionStatus, MarketState } from '@/types'
+import type {
+  CandleSeries,
+  ConnectionStatus,
+  MarketFeed,
+  MarketState
+} from '@/types'
 
 export const marketStore = create<MarketState>()((set) => ({
-  status: 'connecting',
+  status: { spot: 'connecting', futures: 'connecting' },
   tickers: {},
   books: {},
   deepBooks: {},
   trades: {},
   series: {},
-  setStatus(status: ConnectionStatus) {
-    set({ status })
+  setStatus(feed: MarketFeed, status: ConnectionStatus) {
+    set((state) => ({ status: { ...state.status, [feed]: status } }))
   },
   applyStreamBatch(batch) {
     set(batch)

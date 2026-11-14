@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_DEPOSIT } from '@/utils'
+import { MAX_DEPOSIT, SYMBOLS } from '@/utils'
 import type {
   MarkPrices,
   OrderBook,
@@ -13,6 +13,7 @@ import type {
 } from '@/types'
 import {
   addDeposit,
+  addMissingSymbols,
   cancelOpenOrder,
   changeFeeRates,
   changeLeverage,
@@ -858,7 +859,9 @@ describe('migrateAccountFromV3', () => {
 
     const migrated = migrateAccountFromV3(v3 as TradingAccountV3)
 
-    expect(migrated.leverage).toEqual({ BTCUSD: 1, USDBRL: 1 })
+    expect(Object.values(migrated.leverage)).toEqual(
+      Object.keys(SYMBOLS).map(() => 1)
+    )
     expect(migrated.balances).toEqual(v3.balances)
   })
 })
@@ -880,6 +883,35 @@ describe('migrateAccountFromV4', () => {
       taker: TAKER_FEE_RATE
     })
     expect(migrated.balances).toEqual(v4.balances)
+  })
+})
+
+describe('addMissingSymbols', () => {
+  it('gives symbols added since the account was saved the defaults', () => {
+    const saved = {
+      ...createAccount(),
+      leverage: { BTCUSD: 5, USDBRL: 2 } as TradingAccount['leverage'],
+      feeRates: {
+        BTCUSD: { maker: -0.0001, taker: 0.0004 },
+        USDBRL: { maker: MAKER_FEE_RATE, taker: TAKER_FEE_RATE }
+      } as TradingAccount['feeRates'],
+      tradeMode: {
+        BTCUSD: 'spot',
+        USDBRL: 'margin'
+      } as TradingAccount['tradeMode']
+    }
+    const account = addMissingSymbols(saved)
+
+    expect(account.leverage).toMatchObject({ BTCUSD: 5, USDBRL: 2, NVDAUSD: 1 })
+    expect(account.feeRates.BTCUSD).toEqual({ maker: -0.0001, taker: 0.0004 })
+    expect(account.feeRates.XAUUSD).toEqual({
+      maker: MAKER_FEE_RATE,
+      taker: TAKER_FEE_RATE
+    })
+    expect(account.tradeMode).toMatchObject({
+      BTCUSD: 'spot',
+      SPYUSD: 'margin'
+    })
   })
 })
 
@@ -931,7 +963,9 @@ describe('migrateAccountFromV5', () => {
     const migrated = migrateAccountFromV5(v5())
 
     expect(migrated.spot).toEqual({})
-    expect(migrated.tradeMode).toEqual({ BTCUSD: 'margin', USDBRL: 'margin' })
+    expect(Object.values(migrated.tradeMode)).toEqual(
+      Object.keys(SYMBOLS).map(() => 'margin')
+    )
   })
 
   it('keeps balances', () => {
@@ -1886,7 +1920,10 @@ describe('spot', () => {
   it('remembers the trade mode per symbol', () => {
     const account = changeTradeMode(createAccount(), 'BTCUSD', 'spot')
 
-    expect(account.tradeMode).toEqual({ BTCUSD: 'spot', USDBRL: 'margin' })
+    expect(account.tradeMode).toMatchObject({
+      BTCUSD: 'spot',
+      USDBRL: 'margin'
+    })
   })
 })
 
@@ -2106,7 +2143,9 @@ describe('leverage', () => {
     })
 
   it('starts at 1x', () => {
-    expect(createAccount().leverage).toEqual({ BTCUSD: 1, USDBRL: 1 })
+    expect(Object.values(createAccount().leverage)).toEqual(
+      Object.keys(SYMBOLS).map(() => 1)
+    )
   })
 
   it('allows a position larger than the balance', () => {
@@ -2146,7 +2185,11 @@ describe('leverage', () => {
   it('is set per symbol', () => {
     const account = fillAt(atLeverage(10), 'buy', 1000, 5, 'USDBRL')
 
-    expect(account.leverage).toEqual({ BTCUSD: 10, USDBRL: 1 })
+    expect(account.leverage).toMatchObject({
+      BTCUSD: 10,
+      USDBRL: 1,
+      NVDAUSD: 1
+    })
     expect(getAccountSummary(account, 'BRL', {}).usedMargin).toBe(5000)
   })
 

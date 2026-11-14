@@ -299,7 +299,7 @@ export default class TradingService implements ITradingService {
   }
 
   public placeOrder(request: OrderRequest): PlaceOrderResult {
-    if (!this.marketService.isLive() || this.hasUnreplayedGap) {
+    if (!this.marketService.isLive(request.symbol) || this.hasUnreplayedGap) {
       return { ok: false, reason: 'marketUnavailable' }
     }
 
@@ -411,7 +411,8 @@ export default class TradingService implements ITradingService {
         account,
         start,
         end,
-        marks,
+        // Prices are taken from the history as it's replayed, not from now.
+        marks: {},
         source: this.marketService,
         onProgress: (checkedUpTo) => this.updateRun({ checkedUpTo }),
         onEvent: (event) => {

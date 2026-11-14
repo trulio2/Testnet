@@ -1,4 +1,18 @@
-export type SymbolId = 'BTCUSD' | 'USDBRL'
+export type SymbolId =
+  | 'BTCUSD'
+  | 'USDBRL'
+  | 'NVDAUSD'
+  | 'TSLAUSD'
+  | 'AAPLUSD'
+  | 'MSFTUSD'
+  | 'GOOGLUSD'
+  | 'SPYUSD'
+  | 'SPCXUSD'
+  | 'XAUUSD'
+
+// Binance spot, or Binance USDⓈ-M futures, where stocks and gold trade as
+// perpetual contracts.
+export type MarketFeed = 'spot' | 'futures'
 
 export type Currency = 'USD' | 'BRL'
 
@@ -17,6 +31,7 @@ export interface SymbolConfig {
   label: string
   base: string
   quote: Currency
+  feed: MarketFeed
   feedSymbol: string
   feedLabel: string
   tickSize: number
@@ -106,7 +121,7 @@ export interface IMarketRepository {
   fetchRecentTrades(symbol: SymbolId, limit: number): Promise<Trade[]>
   fetchTrades(symbol: SymbolId, options: FetchCandlesOptions): Promise<Trade[]>
   fetchOrderBook(symbol: SymbolId, limit: number): Promise<OrderBook>
-  openStream(handlers: MarketStreamHandlers): MarketStream
+  openStream(feed: MarketFeed, handlers: MarketStreamHandlers): MarketStream
 }
 
 export interface IMarketService {
@@ -117,7 +132,7 @@ export interface IMarketService {
   getTimeframes(): Timeframe[]
   getSelectedTimeframe(): Timeframe
   setSelectedTimeframe(timeframe: Timeframe): void
-  getConnectionStatus(): ConnectionStatus
+  getConnectionStatus(symbol: SymbolId): ConnectionStatus
   getTicker(symbol: SymbolId): Ticker | undefined
   getLastPrice(symbol: SymbolId): number | undefined
   getMarkPrice(symbol: SymbolId): number | undefined
@@ -127,7 +142,7 @@ export interface IMarketService {
   getOrderBookStep(symbol: SymbolId): number
   changeOrderBookStep(symbol: SymbolId, direction: 1 | -1): void
   getLatestBook(symbol: SymbolId): OrderBook | undefined
-  isLive(): boolean
+  isLive(symbol: SymbolId): boolean
   getMarketTime(): number
   subscribeMarketEvents(listener: MarketEventListener): () => void
   getHistoryCandles(
@@ -167,13 +182,13 @@ export interface ChartPreferencesState {
 }
 
 export interface MarketState {
-  status: ConnectionStatus
+  status: Record<MarketFeed, ConnectionStatus>
   tickers: Partial<Record<SymbolId, Ticker>>
   books: Partial<Record<SymbolId, OrderBook>>
   deepBooks: Partial<Record<SymbolId, OrderBook>>
   trades: Partial<Record<SymbolId, Trade[]>>
   series: Record<string, CandleSeries>
-  setStatus(status: ConnectionStatus): void
+  setStatus(feed: MarketFeed, status: ConnectionStatus): void
   applyStreamBatch(
     batch: Pick<MarketState, 'tickers' | 'books' | 'trades'>
   ): void

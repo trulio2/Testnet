@@ -12,6 +12,7 @@ import type {
   TradingState
 } from '@/types'
 import {
+  addMissingSymbols,
   createAccount,
   migrateAccountFromV1,
   migrateAccountFromV2,
@@ -64,6 +65,17 @@ export const tradingStore = create<TradingState>()(
             : (state.account as TradingAccountV5)
 
         return { ...state, account: migrateAccountFromV5(v5) }
+      },
+      // Runs on every load rather than as a migration, so adding a symbol needs no
+      // new version.
+      merge(persisted, current) {
+        const state = persisted as Partial<TradingState> | undefined
+
+        return {
+          ...current,
+          ...state,
+          account: addMissingSymbols(state?.account ?? current.account)
+        }
       },
       partialize: (state) => ({
         account: state.account,

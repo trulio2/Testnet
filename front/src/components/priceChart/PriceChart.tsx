@@ -340,7 +340,9 @@ export default function PriceChart({ symbol }: { symbol: SymbolId }) {
           </dl>
         )}
         <span className="chart-feed">
-          {t('components.chart.feedNote', { feed: config.feedLabel })}
+          {t(`components.chart.feedNote.${config.feed}`, {
+            feed: config.feedLabel
+          })}
         </span>
       </header>
       <div className="chart-canvas">

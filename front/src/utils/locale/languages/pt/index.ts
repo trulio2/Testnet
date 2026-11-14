@@ -6,7 +6,7 @@ export const pt: ITranslations = {
     wallet: {
       title: 'Carteira',
       description:
-        'Fundos simulados para testes. USD garante BTC/USD e BRL garante USD/BRL. USD comprado ou vendido no spot de USD/BRL usa este mesmo saldo em USD.',
+        'Fundos simulados para testes. USD garante BTC/USD, as ações e o ouro, e BRL garante USD/BRL. USD comprado ou vendido no spot de USD/BRL usa este mesmo saldo em USD.',
       reset: 'Redefinir conta',
       resetConfirm:
         'Redefinir a conta? Os saldos voltam aos valores iniciais, e posições, saldos spot, ordens abertas, execuções e histórico de fundos serão apagados.'
@@ -35,7 +35,10 @@ export const pt: ITranslations = {
     chart: {
       timeframe: 'Período',
       loading: 'Carregando gráfico',
-      feedNote: 'Preços de {feed} na Binance',
+      feedNote: {
+        spot: 'Preços de {feed} na Binance',
+        futures: 'Preços do perpétuo {feed} na Binance Futures'
+      },
       buy: 'Compra',
       sell: 'Venda',
       entry: 'Entrada',
@@ -90,7 +93,8 @@ export const pt: ITranslations = {
       addFunds: 'Adicionar fundos'
     },
     walletBalance: {
-      usedFor: 'Usado em {symbols}'
+      usedFor: 'Usado em {symbols}',
+      usedForMany: 'Usado em {symbol} e mais {count}'
     },
     indicators: {
       title: 'Indicadores',

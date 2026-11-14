@@ -75,7 +75,7 @@ export function replayTrades(
         to: trade.price,
         time: trade.time
       },
-      marks
+      { ...marks, ...lastPrices }
     )
 
     current = result.account
@@ -162,8 +162,10 @@ export async function runSimulation({
   const lastPrices: Partial<Record<SymbolId, number>> = {}
   let current = account
 
+  const getMarks = () => ({ ...marks, ...lastPrices })
+
   const isHit = (symbol: SymbolId, candle: Candle, before: number) =>
-    hasTriggerInRange(current, symbol, candle, before, marks)
+    hasTriggerInRange(current, symbol, candle, before, getMarks())
 
   // For periods the exchange no longer has finer data for. The usual guess at the
   // path inside a candle: to the nearer extreme, then the other, then the close.
@@ -179,7 +181,7 @@ export async function runSimulation({
         current,
         symbol,
         { from: path[index], to, time: candle.time * 1000 },
-        marks
+        getMarks()
       )
 
       current = result.account

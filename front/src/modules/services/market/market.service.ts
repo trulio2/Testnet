@@ -8,6 +8,7 @@ import type {
   ConnectionStatus,
   IMarketRepository,
   IMarketService,
+  MarketFeed,
   MarketEventListener,
   MarketStream,
   OrderBook,
@@ -18,6 +19,7 @@ import type {
   Trade
 } from '@/types'
 import {
+  aggregateTrades,
   applyTradeToCandles,
   getMidPrice,
   getSeriesKey,
@@ -38,6 +40,20 @@ const MAX_RECONNECT_DELAY_MS = 30_000
 const DEEP_BOOK_LEVELS = 1000
 const DEEP_BOOK_POLL_MS = 3_000
 const NO_TRADES: Trade[] = []
+const TRADES_PAGE_SIZE = 1000
+// Futures only serve trades from the last two days. A margin keeps a request near
+// the limit from being refused on the way.
+const FUTURES_TRADES_HISTORY_MS = 2 * 86_400_000 - 10 * 60_000
+const FEEDS = [...new Set(Object.values(SYMBOLS).map(({ feed }) => feed))]
+
+// Each feed connects on its own, so a region that blocks futures still gets spot.
+interface FeedConnection {
+  stream: MarketStream | null
+  hasConnected: boolean
+  reconnectAttempts: number
+  reconnectTimer: ReturnType<typeof setTimeout> | null
+  lastMessageAt: number
+}
 
 interface CandleSubscription {
   key: string
@@ -51,11 +67,18 @@ interface CandleSubscription {
 
 export default class MarketService implements IMarketService {
   private started = false
-  private hasConnected = false
-  private stream: MarketStream | null = null
-  private reconnectAttempts = 0
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private lastMessageAt = 0
+  private connections = Object.fromEntries(
+    FEEDS.map((feed) => [
+      feed,
+      {
+        stream: null,
+        hasConnected: false,
+        reconnectAttempts: 0,
+        reconnectTimer: null,
+        lastMessageAt: 0
+      }
+    ])
+  ) as Record<MarketFeed, FeedConnection>
   private flushHandle: number | null = null
   private pendingTrades: Partial<Record<SymbolId, Trade[]>> = {}
   private pendingBooks: Partial<Record<SymbolId, OrderBook>> = {}
@@ -81,7 +104,7 @@ export default class MarketService implements IMarketService {
     if (this.started) return
 
     this.started = true
-    this.connect()
+    FEEDS.forEach((feed) => this.connect(feed))
     setInterval(() => this.checkForStaleStream(), WATCHDOG_INTERVAL_MS)
   }
 
@@ -109,8 +132,8 @@ export default class MarketService implements IMarketService {
     chartPreferencesStore.getState().setTimeframe(timeframe)
   }
 
-  public getConnectionStatus(): ConnectionStatus {
-    return marketStore((state) => state.status)
+  public getConnectionStatus(symbol: SymbolId): ConnectionStatus {
+    return marketStore((state) => state.status[SYMBOLS[symbol].feed])
   }
 
   public getTicker(symbol: SymbolId): Ticker | undefined {
@@ -194,8 +217,8 @@ export default class MarketService implements IMarketService {
     return this.latestBooks[symbol]
   }
 
-  public isLive(): boolean {
-    return marketStore.getState().status === 'live'
+  public isLive(symbol: SymbolId): boolean {
+    return marketStore.getState().status[SYMBOLS[symbol].feed] === 'live'
   }
 
   // Local time corrected to the exchange's clock, so times stay comparable with
@@ -280,18 +303,53 @@ export default class MarketService implements IMarketService {
     }
   }
 
-  public getHistoryCandles(
+  // Futures have no one-second candles, so those are built from trades.
+  public async getHistoryCandles(
     symbol: SymbolId,
     interval: CandleInterval,
     options: FetchCandlesOptions
   ): Promise<Candle[]> {
-    return this.marketRepository.fetchCandles(symbol, interval, options)
+    if (interval !== '1s' || SYMBOLS[symbol].feed !== 'futures') {
+      return this.marketRepository.fetchCandles(symbol, interval, options)
+    }
+
+    const trades: Trade[] = []
+    let startTime = options.startTime ?? 0
+
+    for (;;) {
+      const page = await this.getHistoryTrades(symbol, {
+        ...options,
+        limit: TRADES_PAGE_SIZE,
+        startTime
+      })
+      const lastId = trades.at(-1)?.id ?? -1
+
+      trades.push(...page.filter((trade) => trade.id > lastId))
+
+      const last = page.at(-1)
+
+      if (!last || page.length < TRADES_PAGE_SIZE) {
+        return aggregateTrades(trades, 1000).slice(0, options.limit)
+      }
+
+      startTime = last.time === startTime ? startTime + 1 : last.time
+    }
   }
 
-  public getHistoryTrades(
+  // Empty where the exchange no longer has them, as it would be for any symbol
+  // once its trade history runs out.
+  public async getHistoryTrades(
     symbol: SymbolId,
     options: FetchCandlesOptions
   ): Promise<Trade[]> {
+    if (
+      SYMBOLS[symbol].feed === 'futures' &&
+      (options.startTime ?? 0) <
+        this.getMarketTime() - FUTURES_TRADES_HISTORY_MS
+    ) {
+      return []
+    }
+
     return this.marketRepository.fetchTrades(symbol, options)
   }
 
@@ -362,13 +420,15 @@ export default class MarketService implements IMarketService {
     if (subscription) await this.loadLatestCandles(subscription)
   }
 
-  private connect(): void {
-    this.lastMessageAt = Date.now()
-    this.stream = this.marketRepository.openStream({
-      onOpen: () => this.handleOpen(),
-      onClose: () => this.handleDisconnect(),
+  private connect(feed: MarketFeed): void {
+    const connection = this.connections[feed]
+
+    connection.lastMessageAt = Date.now()
+    connection.stream = this.marketRepository.openStream(feed, {
+      onOpen: () => this.handleOpen(feed),
+      onClose: () => this.handleDisconnect(feed),
       onTrade: (symbol, trade) => {
-        this.markMessageReceived()
+        this.markMessageReceived(feed)
         this.clockOffset = trade.time - Date.now()
         this.updateLatestPrice(symbol, trade.price)
         this.handleTrade(symbol, trade)
@@ -377,50 +437,59 @@ export default class MarketService implements IMarketService {
         )
       },
       onBook: (symbol, book) => {
-        this.markMessageReceived()
+        this.markMessageReceived(feed)
         this.latestBooks[symbol] = book
         this.pendingBooks[symbol] = book
         this.scheduleFlush()
         this.eventListeners.forEach((listener) => listener.onBook(symbol, book))
       },
       onTicker: (symbol, ticker) => {
-        this.markMessageReceived()
+        this.markMessageReceived(feed)
         this.pendingTickers[symbol] = ticker
         this.scheduleFlush()
       }
     })
   }
 
-  private handleOpen(): void {
-    marketStore.getState().setStatus('live')
-    this.getSymbols().forEach(({ id }) => void this.seedRecentTrades(id))
+  private handleOpen(feed: MarketFeed): void {
+    const connection = this.connections[feed]
+    const isOnFeed = (symbol: SymbolId) => SYMBOLS[symbol].feed === feed
 
-    if (this.hasConnected) {
-      this.subscriptions.forEach(
-        (subscription) => void this.loadLatestCandles(subscription)
-      )
+    marketStore.getState().setStatus(feed, 'live')
+    this.getSymbols()
+      .filter(({ id }) => isOnFeed(id))
+      .forEach(({ id }) => void this.seedRecentTrades(id))
+
+    if (connection.hasConnected) {
+      this.subscriptions.forEach((subscription) => {
+        if (isOnFeed(subscription.symbol)) {
+          void this.loadLatestCandles(subscription)
+        }
+      })
     }
 
-    this.hasConnected = true
+    connection.hasConnected = true
     this.eventListeners.forEach((listener) => listener.onOpen())
   }
 
-  private handleDisconnect(): void {
-    this.stream = null
+  private handleDisconnect(feed: MarketFeed): void {
+    const connection = this.connections[feed]
+
+    connection.stream = null
     marketStore
       .getState()
-      .setStatus(this.hasConnected ? 'reconnecting' : 'connecting')
+      .setStatus(feed, connection.hasConnected ? 'reconnecting' : 'connecting')
 
     const backoff = Math.min(
-      BASE_RECONNECT_DELAY_MS * 2 ** this.reconnectAttempts,
+      BASE_RECONNECT_DELAY_MS * 2 ** connection.reconnectAttempts,
       MAX_RECONNECT_DELAY_MS
     )
 
-    this.reconnectAttempts += 1
-    this.reconnectTimer = setTimeout(
+    connection.reconnectAttempts += 1
+    connection.reconnectTimer = setTimeout(
       () => {
-        this.reconnectTimer = null
-        this.connect()
+        connection.reconnectTimer = null
+        this.connect(feed)
       },
       backoff + Math.random() * BASE_RECONNECT_DELAY_MS
     )
@@ -428,19 +497,23 @@ export default class MarketService implements IMarketService {
 
   // A socket can open and then drop straight away, so the backoff only resets
   // once data is actually flowing.
-  private markMessageReceived(): void {
-    this.lastMessageAt = Date.now()
-    this.reconnectAttempts = 0
+  private markMessageReceived(feed: MarketFeed): void {
+    this.connections[feed].lastMessageAt = Date.now()
+    this.connections[feed].reconnectAttempts = 0
   }
 
   // Covers sockets that stay "open" while no data arrives. Closing through the
   // stream handle detaches its handlers, so the disconnect is handled here.
   private checkForStaleStream(): void {
-    if (!this.stream || this.reconnectTimer) return
-    if (Date.now() - this.lastMessageAt < STALE_AFTER_MS) return
+    for (const feed of FEEDS) {
+      const { stream, reconnectTimer, lastMessageAt } = this.connections[feed]
 
-    this.stream.close()
-    this.handleDisconnect()
+      if (!stream || reconnectTimer) continue
+      if (Date.now() - lastMessageAt < STALE_AFTER_MS) continue
+
+      stream.close()
+      this.handleDisconnect(feed)
+    }
   }
 
   private async pollDeepBook(symbol: SymbolId): Promise<void> {

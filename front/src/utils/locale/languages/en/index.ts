@@ -6,7 +6,7 @@ export const en: ITranslations = {
     wallet: {
       title: 'Wallet',
       description:
-        'Simulated funds for testing. USD backs BTC/USD and BRL backs USD/BRL. USD bought or sold on USD/BRL spot uses this same USD balance.',
+        'Simulated funds for testing. USD backs BTC/USD, the stocks and gold, and BRL backs USD/BRL. USD bought or sold on USD/BRL spot uses this same USD balance.',
       reset: 'Reset account',
       resetConfirm:
         'Reset the account? Balances return to their starting amounts, and positions, spot holdings, open orders, fills and funds history are cleared.'
@@ -34,7 +34,10 @@ export const en: ITranslations = {
     chart: {
       timeframe: 'Timeframe',
       loading: 'Loading chart',
-      feedNote: 'Prices from {feed} on Binance',
+      feedNote: {
+        spot: 'Prices from {feed} on Binance',
+        futures: 'Prices from the {feed} perpetual on Binance Futures'
+      },
       buy: 'Buy',
       sell: 'Sell',
       entry: 'Entry',
@@ -88,7 +91,8 @@ export const en: ITranslations = {
       addFunds: 'Add funds'
     },
     walletBalance: {
-      usedFor: 'Used for {symbols}'
+      usedFor: 'Used for {symbols}',
+      usedForMany: 'Used for {symbol} and {count} more'
     },
     indicators: {
       title: 'Indicators',

@@ -56,11 +56,18 @@ const MAX_FILLS = 200
 const MAX_LEDGER_ENTRIES = 500
 const MAX_LIQUIDATION_NOTICES = 20
 const MONEY_DECIMALS = 2
-const DEFAULT_LEVERAGE = { BTCUSD: 1, USDBRL: 1 }
-const DEFAULT_TRADE_MODE: Record<SymbolId, TradeMarket> = {
-  BTCUSD: 'margin',
-  USDBRL: 'margin'
+const SYMBOL_IDS = Object.keys(SYMBOLS) as SymbolId[]
+
+function createForSymbols<T>(create: () => T): Record<SymbolId, T> {
+  return Object.fromEntries(SYMBOL_IDS.map((id) => [id, create()])) as Record<
+    SymbolId,
+    T
+  >
 }
+
+const createDefaultLeverage = () => createForSymbols(() => 1)
+const createDefaultTradeMode = () =>
+  createForSymbols((): TradeMarket => 'margin')
 
 function createInitialLedger(
   balances: Record<Currency, number>,
@@ -78,7 +85,18 @@ function createInitialLedger(
 }
 
 function createDefaultFeeRates(): Record<SymbolId, FeeRates> {
-  return { BTCUSD: { ...DEFAULT_FEE_RATES }, USDBRL: { ...DEFAULT_FEE_RATES } }
+  return createForSymbols(() => ({ ...DEFAULT_FEE_RATES }))
+}
+
+// A saved account only has settings for the symbols that existed when it was
+// saved, so newer symbols start from the defaults.
+export function addMissingSymbols(account: TradingAccount): TradingAccount {
+  return {
+    ...account,
+    leverage: { ...createDefaultLeverage(), ...account.leverage },
+    feeRates: { ...createDefaultFeeRates(), ...account.feeRates },
+    tradeMode: { ...createDefaultTradeMode(), ...account.tradeMode }
+  }
 }
 
 export function createAccount(time = 0): TradingAccount {
@@ -89,10 +107,10 @@ export function createAccount(time = 0): TradingAccount {
     fills: [],
     ledger: createInitialLedger(INITIAL_BALANCES, 1, time),
     liquidationNotices: [],
-    leverage: { ...DEFAULT_LEVERAGE },
+    leverage: createDefaultLeverage(),
     feeRates: createDefaultFeeRates(),
     spot: {},
-    tradeMode: { ...DEFAULT_TRADE_MODE },
+    tradeMode: createDefaultTradeMode(),
     nextId: CURRENCIES.length + 1
   }
 }
@@ -141,7 +159,7 @@ export function migrateAccountFromV2(
 export function migrateAccountFromV3(
   account: TradingAccountV3
 ): TradingAccountV4 {
-  return { ...account, leverage: { ...DEFAULT_LEVERAGE } }
+  return { ...account, leverage: createDefaultLeverage() }
 }
 
 export function migrateAccountFromV4(
@@ -162,7 +180,7 @@ export function migrateAccountFromV5(
     })),
     fills: account.fills.map((fill) => ({ ...fill, market: 'margin' })),
     spot: {},
-    tradeMode: { ...DEFAULT_TRADE_MODE }
+    tradeMode: createDefaultTradeMode()
   }
 }
 

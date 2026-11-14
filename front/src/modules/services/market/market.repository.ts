@@ -3,6 +3,7 @@ import type {
   CandleInterval,
   FetchCandlesOptions,
   IMarketRepository,
+  MarketFeed,
   MarketStream,
   MarketStreamHandlers,
   OrderBook,
@@ -12,9 +13,36 @@ import type {
 } from '@/types'
 import { SYMBOLS } from '@/utils'
 
-const REST_URL = 'https://data-api.binance.vision/api/v3'
-const STREAM_URL = 'wss://data-stream.binance.vision/stream'
-const STREAM_KINDS = ['aggTrade', 'depth20@100ms', 'ticker']
+// Spot uses Binance's market-data-only hosts, which more regions can reach.
+// Futures split their streams: trades and tickers on one address, the order book
+// on another.
+const FEEDS: Record<
+  MarketFeed,
+  { rest: string; streams: { url: string; kinds: string[] }[] }
+> = {
+  spot: {
+    rest: 'https://data-api.binance.vision/api/v3',
+    streams: [
+      {
+        url: 'wss://data-stream.binance.vision/stream',
+        kinds: ['aggTrade', 'depth20@100ms', 'ticker']
+      }
+    ]
+  },
+  futures: {
+    rest: 'https://fapi.binance.com/fapi/v1',
+    streams: [
+      {
+        url: 'wss://fstream.binance.com/market/stream',
+        kinds: ['aggTrade', 'ticker']
+      },
+      {
+        url: 'wss://fstream.binance.com/public/stream',
+        kinds: ['depth20@100ms']
+      }
+    ]
+  }
+}
 
 type BinanceKline = [number, string, string, string, string, string]
 type BinanceLevel = [string, string]
@@ -30,6 +58,12 @@ interface BinanceAggTrade {
 interface BinanceDepth {
   bids: BinanceLevel[]
   asks: BinanceLevel[]
+}
+
+// The futures stream names the sides "b" and "a".
+interface BinanceFuturesDepth {
+  b: BinanceLevel[]
+  a: BinanceLevel[]
 }
 
 interface BinanceTicker {
@@ -79,11 +113,16 @@ function toCandle([
 }
 
 async function getJson<T>(
+  symbol: SymbolId,
   path: string,
   params: Record<string, string>
 ): Promise<T> {
+  const { feed, feedSymbol } = SYMBOLS[symbol]
   const response = await fetch(
-    `${REST_URL}/${path}?${new URLSearchParams(params)}`
+    `${FEEDS[feed].rest}/${path}?${new URLSearchParams({
+      symbol: feedSymbol,
+      ...params
+    })}`
   )
 
   if (!response.ok) {
@@ -99,8 +138,7 @@ export default class MarketRepository implements IMarketRepository {
     interval: CandleInterval,
     { limit, startTime, endTime }: FetchCandlesOptions
   ): Promise<Candle[]> {
-    const klines = await getJson<BinanceKline[]>('klines', {
-      symbol: SYMBOLS[symbol].feedSymbol,
+    const klines = await getJson<BinanceKline[]>(symbol, 'klines', {
       interval,
       limit: String(limit),
       ...(startTime === undefined ? {} : { startTime: String(startTime) }),
@@ -114,8 +152,7 @@ export default class MarketRepository implements IMarketRepository {
     symbol: SymbolId,
     limit: number
   ): Promise<Trade[]> {
-    const trades = await getJson<BinanceAggTrade[]>('aggTrades', {
-      symbol: SYMBOLS[symbol].feedSymbol,
+    const trades = await getJson<BinanceAggTrade[]>(symbol, 'aggTrades', {
       limit: String(limit)
     })
 
@@ -126,8 +163,7 @@ export default class MarketRepository implements IMarketRepository {
     symbol: SymbolId,
     { limit, startTime, endTime }: FetchCandlesOptions
   ): Promise<Trade[]> {
-    const trades = await getJson<BinanceAggTrade[]>('aggTrades', {
-      symbol: SYMBOLS[symbol].feedSymbol,
+    const trades = await getJson<BinanceAggTrade[]>(symbol, 'aggTrades', {
       limit: String(limit),
       ...(startTime === undefined ? {} : { startTime: String(startTime) }),
       ...(endTime === undefined ? {} : { endTime: String(endTime) })
@@ -140,23 +176,39 @@ export default class MarketRepository implements IMarketRepository {
     symbol: SymbolId,
     limit: number
   ): Promise<OrderBook> {
-    const { bids, asks } = await getJson<BinanceDepth>('depth', {
-      symbol: SYMBOLS[symbol].feedSymbol,
+    const { bids, asks } = await getJson<BinanceDepth>(symbol, 'depth', {
       limit: String(limit)
     })
 
     return { bids: bids.map(toLevel), asks: asks.map(toLevel) }
   }
 
-  public openStream(handlers: MarketStreamHandlers): MarketStream {
-    const streams = [...symbolsByStreamName.keys()]
-      .flatMap((name) => STREAM_KINDS.map((kind) => `${name}@${kind}`))
-      .join('/')
-    const socket = new WebSocket(`${STREAM_URL}?streams=${streams}`)
+  public openStream(
+    feed: MarketFeed,
+    handlers: MarketStreamHandlers
+  ): MarketStream {
+    const names = Object.values(SYMBOLS)
+      .filter((config) => config.feed === feed)
+      .map(({ feedSymbol }) => feedSymbol.toLowerCase())
+    const sockets = FEEDS[feed].streams.map(
+      ({ url, kinds }) =>
+        new WebSocket(
+          `${url}?streams=${names
+            .flatMap((name) => kinds.map((kind) => `${name}@${kind}`))
+            .join('/')}`
+        )
+    )
+    let openCount = 0
 
-    socket.onopen = () => handlers.onOpen()
-    socket.onclose = () => handlers.onClose()
-    socket.onmessage = (event: MessageEvent<string>) => {
+    const detach = () =>
+      sockets.forEach((socket) => {
+        socket.onopen = null
+        socket.onclose = null
+        socket.onmessage = null
+        socket.close()
+      })
+
+    const handleMessage = (event: MessageEvent<string>) => {
       const { stream, data } = JSON.parse(event.data) as {
         stream: string
         data: unknown
@@ -169,7 +221,9 @@ export default class MarketRepository implements IMarketRepository {
       if (kind === 'aggTrade') {
         handlers.onTrade(symbol, toTrade(data as BinanceAggTrade))
       } else if (kind === 'depth20') {
-        const { bids, asks } = data as BinanceDepth
+        const depth = data as BinanceDepth | BinanceFuturesDepth
+        const { bids, asks } =
+          'b' in depth ? { bids: depth.b, asks: depth.a } : depth
 
         handlers.onBook(symbol, {
           bids: bids.map(toLevel),
@@ -187,13 +241,20 @@ export default class MarketRepository implements IMarketRepository {
       }
     }
 
-    return {
-      close() {
-        socket.onopen = null
-        socket.onclose = null
-        socket.onmessage = null
-        socket.close()
+    // The feed is only live with all its sockets, and goes down with any of them.
+    sockets.forEach((socket) => {
+      socket.onopen = () => {
+        openCount += 1
+
+        if (openCount === sockets.length) handlers.onOpen()
       }
-    }
+      socket.onclose = () => {
+        detach()
+        handlers.onClose()
+      }
+      socket.onmessage = handleMessage
+    })
+
+    return { close: detach }
   }
 }

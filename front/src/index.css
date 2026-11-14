@@ -132,11 +132,16 @@
 
 .symbol-tabs {
   display: flex;
+  flex: 0 1 auto;
   gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .symbol-tab {
   display: flex;
+  flex: none;
   flex-direction: column;
   min-width: 88px;
   padding: 2px 8px;

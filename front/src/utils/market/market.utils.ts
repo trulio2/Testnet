@@ -112,6 +112,34 @@ export function applyTradeToCandles(
 
 // Keeps older candles only when `latest` overlaps them, so a long outage never
 // joins two distant stretches of history without the candles in between.
+// Candles of any length from a list of trades in time order.
+export function aggregateTrades(trades: Trade[], intervalMs: number): Candle[] {
+  const candles: Candle[] = []
+
+  for (const { price, qty, time } of trades) {
+    const openTime = Math.floor(time / intervalMs) * intervalMs
+    const last = candles.at(-1)
+
+    if (last && last.time * 1000 === openTime) {
+      last.high = Math.max(last.high, price)
+      last.low = Math.min(last.low, price)
+      last.close = price
+      last.volume += qty
+    } else {
+      candles.push({
+        time: openTime / 1000,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: qty
+      })
+    }
+  }
+
+  return candles
+}
+
 export function mergeLatestCandles(
   current: Candle[],
   latest: Candle[]
